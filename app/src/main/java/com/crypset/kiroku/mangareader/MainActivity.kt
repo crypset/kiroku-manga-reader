@@ -15,7 +15,6 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.documentfile.provider.DocumentFile
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -98,7 +97,7 @@ class MainActivity : AppCompatActivity() {
         scope.launch {
             try {
                 val scannedManga = withContext(Dispatchers.IO) {
-                    scanRootMangaFolder(uri)
+                    scanRootMangaFolderFast(uri)
                 }
 
                 mangaList.clear()
@@ -127,11 +126,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun scanRootMangaFolder(uri: Uri): List<MangaItem> {
-        val result = mutableListOf<MangaItem>()
-
+    private fun scanRootMangaFolderFast(uri: Uri): List<MangaItem> {
         try {
-            val rootFolder = DocumentFile.fromTreeUri(this, uri)
+            val rootFolder = androidx.documentfile.provider.DocumentFile.fromTreeUri(this, uri)
 
             if (rootFolder == null || !rootFolder.exists()) {
                 Log.e("MangaReader", "Root folder is null or doesn't exist")
@@ -140,35 +137,29 @@ class MainActivity : AppCompatActivity() {
 
             Log.d("MangaReader", "=== Scanning root folder: ${rootFolder.name} ===")
 
+            // ШВИДКА обробка - просто отримуємо список папок без додаткових перевірок
             val mangaFolders = try {
                 rootFolder.listFiles()
                     .filter { it.isDirectory }
                     .sortedWith(naturalOrderComparator())
+                    .map { folder ->
+                        MangaItem(
+                            name = folder.name ?: "Unknown Manga",
+                            uri = folder.uri.toString()
+                        )
+                    }
             } catch (e: Exception) {
                 Log.e("MangaReader", "Error listing manga folders", e)
-                return emptyList()
+                emptyList()
             }
 
             Log.d("MangaReader", "Found ${mangaFolders.size} manga folders")
+            return mangaFolders
 
-            mangaFolders.forEach { mangaFolder ->
-                try {
-                    Log.d("MangaReader", "Processing manga: ${mangaFolder.name}")
-                    result.add(MangaItem(
-                        name = mangaFolder.name ?: "Unknown Manga",
-                        uri = mangaFolder.uri.toString()
-                    ))
-                } catch (e: Exception) {
-                    Log.e("MangaReader", "Error processing manga folder", e)
-                }
-            }
         } catch (e: Exception) {
             Log.e("MangaReader", "Fatal error in scanRootMangaFolder", e)
             throw e
         }
-
-        Log.d("MangaReader", "Total manga added to list: ${result.size}")
-        return result
     }
 
     private fun openMangaChapters(manga: MangaItem) {
@@ -178,13 +169,9 @@ class MainActivity : AppCompatActivity() {
         startActivity(intent)
     }
 
-    private fun naturalOrderComparator(): Comparator<DocumentFile> {
+    private fun naturalOrderComparator(): Comparator<androidx.documentfile.provider.DocumentFile> {
         return Comparator { a, b ->
-            try {
-                compareNatural(a.name ?: "", b.name ?: "")
-            } catch (e: Exception) {
-                0
-            }
+            compareNatural(a.name ?: "", b.name ?: "")
         }
     }
 
@@ -203,8 +190,8 @@ class MainActivity : AppCompatActivity() {
 
                 when {
                     aIsNumber && bIsNumber -> {
-                        val aNum = aPart.toIntOrNull() ?: 0
-                        val bNum = bPart.toIntOrNull() ?: 0
+                        val aNum = aPart.toLongOrNull() ?: 0L
+                        val bNum = bPart.toLongOrNull() ?: 0L
                         val comparison = aNum.compareTo(bNum)
                         if (comparison != 0) return comparison
                     }

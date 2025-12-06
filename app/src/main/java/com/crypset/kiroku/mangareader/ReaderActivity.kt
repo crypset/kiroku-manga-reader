@@ -2,10 +2,12 @@ package com.crypset.kiroku.mangareader
 
 import android.content.pm.ActivityInfo
 import android.os.Bundle
+import android.view.MotionEvent
 import android.view.View
 import android.widget.ImageButton
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 
 class ReaderActivity : AppCompatActivity() {
@@ -15,6 +17,7 @@ class ReaderActivity : AppCompatActivity() {
     private lateinit var rotateButton: ImageButton
     private var isToolbarVisible = true
     private var isLandscape = false
+    private var isPageZoomed = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,14 +33,27 @@ class ReaderActivity : AppCompatActivity() {
 
         supportActionBar?.title = title
 
-        val adapter = ImagePagerAdapter(images) {
-            toggleToolbar()
-        }
+        // Адаптер з callback для відстеження зуму
+        val adapter = ImagePagerAdapter(
+            images = images,
+            onImageClick = { toggleToolbar() },
+            onScaleChange = { isZoomed ->
+                isPageZoomed = isZoomed
+                viewPager.isUserInputEnabled = !isZoomed
+            }
+        )
         viewPager.adapter = adapter
 
+        // КРИТИЧНО: Перехоплюємо touch events на рівні RecyclerView
+        setupTouchInterceptor()
+
+        // Callback для зміни сторінок
         viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
                 updatePageIndicator(position + 1, images.size)
+                // При зміні сторінки дозволяємо свайп
+                isPageZoomed = false
+                viewPager.isUserInputEnabled = true
             }
         })
 
@@ -46,6 +62,29 @@ class ReaderActivity : AppCompatActivity() {
         }
 
         updatePageIndicator(1, images.size)
+    }
+
+    private fun setupTouchInterceptor() {
+        // Отримуємо внутрішній RecyclerView з ViewPager2
+        val recyclerView = viewPager.getChildAt(0) as? RecyclerView
+
+        recyclerView?.addOnItemTouchListener(object : RecyclerView.SimpleOnItemTouchListener() {
+            override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
+                // Якщо multi-touch (pinch) - дозволяємо PhotoView обробити
+                if (e.pointerCount > 1) {
+                    rv.parent?.requestDisallowInterceptTouchEvent(true)
+                    viewPager.isUserInputEnabled = false
+                    return false
+                }
+
+                // Якщо сторінка зумлена - блокуємо ViewPager
+                if (isPageZoomed) {
+                    viewPager.isUserInputEnabled = false
+                }
+
+                return false
+            }
+        })
     }
 
     private fun updatePageIndicator(current: Int, total: Int) {

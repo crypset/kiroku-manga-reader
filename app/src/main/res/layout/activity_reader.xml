@@ -6,6 +6,7 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
+    <!-- Повертаємось до звичайного ViewPager2 -->
     <androidx.viewpager2.widget.ViewPager2
         android:id="@+id/imageViewPager"
         android:layout_width="match_parent"
