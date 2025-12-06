@@ -15,6 +15,7 @@ class ReaderActivity : AppCompatActivity() {
     private lateinit var rotateButton: ImageButton
     private var isToolbarVisible = true
     private var isLandscape = false
+    private var currentScale = 1.0f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,10 +31,16 @@ class ReaderActivity : AppCompatActivity() {
 
         supportActionBar?.title = title
 
-        val adapter = ImagePagerAdapter(images) {
-            toggleToolbar()
-        }
+        // Адаптер з обробкою масштабу
+        val adapter = ImagePagerAdapter(
+            images = images,
+            onImageClick = { toggleToolbar() },
+            onScaleChanged = { scale -> handleScaleChange(scale) }
+        )
         viewPager.adapter = adapter
+
+        // Важливо: блокуємо ViewPager2 при зумі
+        viewPager.isUserInputEnabled = true
 
         viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
@@ -46,6 +53,12 @@ class ReaderActivity : AppCompatActivity() {
         }
 
         updatePageIndicator(1, images.size)
+    }
+
+    private fun handleScaleChange(scale: Float) {
+        currentScale = scale
+        // Блокуємо свайпи ViewPager2 коли зображення зумлене
+        viewPager.isUserInputEnabled = scale <= 1.01f
     }
 
     private fun updatePageIndicator(current: Int, total: Int) {
