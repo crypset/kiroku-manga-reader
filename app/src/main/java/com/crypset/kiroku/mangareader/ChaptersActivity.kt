@@ -8,7 +8,6 @@ import android.view.View
 import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.documentfile.provider.DocumentFile
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.*
@@ -24,7 +23,6 @@ class ChaptersActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_chapters)
 
-        // Ініціалізація views ПЕРШОЮ
         recyclerView = findViewById(R.id.chaptersRecyclerView)
         progressBar = findViewById(R.id.progressBar)
 
@@ -47,7 +45,7 @@ class ChaptersActivity : AppCompatActivity() {
         }
         recyclerView.adapter = adapter
 
-        // Сканування в фоновому потоці
+        // Швидке паралельне сканування
         scanChaptersAsync(Uri.parse(mangaUri))
     }
 
@@ -68,7 +66,7 @@ class ChaptersActivity : AppCompatActivity() {
         scope.launch {
             try {
                 val scannedChapters = withContext(Dispatchers.IO) {
-                    scanChapters(mangaUri)
+                    scanChaptersParallel(mangaUri)
                 }
 
                 chapters.clear()
@@ -98,15 +96,13 @@ class ChaptersActivity : AppCompatActivity() {
         }
     }
 
-    private fun scanChapters(mangaUri: Uri): List<Chapter> {
-        val resultChapters = mutableListOf<Chapter>()
-
+    private suspend fun scanChaptersParallel(mangaUri: Uri): List<Chapter> = coroutineScope {
         try {
-            val mangaFolder = DocumentFile.fromTreeUri(this, mangaUri)
+            val mangaFolder = androidx.documentfile.provider.DocumentFile.fromTreeUri(this@ChaptersActivity, mangaUri)
 
             if (mangaFolder == null || !mangaFolder.exists()) {
                 Log.e("MangaReader", "Manga folder is null or doesn't exist")
-                return emptyList()
+                return@coroutineScope emptyList()
             }
 
             Log.d("MangaReader", "=== Scanning chapters in: ${mangaFolder.name} ===")
@@ -115,70 +111,74 @@ class ChaptersActivity : AppCompatActivity() {
                 mangaFolder.listFiles().toList()
             } catch (e: Exception) {
                 Log.e("MangaReader", "Error listing files", e)
-                return emptyList()
+                return@coroutineScope emptyList()
             }
 
             val chapterFolders = allFiles.filter { it.isDirectory }
             Log.d("MangaReader", "Found ${chapterFolders.size} chapter folders")
 
             if (chapterFolders.isEmpty()) {
-                // Якщо немає підпапок - це манга з одним розділом
+                // Одна глава - швидка обробка
                 val images = allFiles
-                    .filter {
-                        it.isFile && it.name?.matches(Regex(".*\\.(png|jpg|jpeg)", RegexOption.IGNORE_CASE)) == true
-                    }
+                    .filter { it.isFile && it.name?.isImageFile() == true }
                     .sortedWith(naturalOrderComparator())
 
                 Log.d("MangaReader", "Single chapter mode: ${images.size} images")
 
-                if (images.isNotEmpty()) {
-                    resultChapters.add(Chapter(
+                return@coroutineScope if (images.isNotEmpty()) {
+                    listOf(Chapter(
                         mangaFolder.name ?: "Chapter",
                         images.map { it.uri.toString() }
                     ))
+                } else {
+                    emptyList()
                 }
-            } else {
-                // Сортуємо глави природним порядком
-                val sortedChapters = chapterFolders.sortedWith(naturalOrderComparator())
+            }
 
-                sortedChapters.forEach { chapterFolder ->
+            // ПАРАЛЕЛЬНА обробка глав для швидкості
+            val sortedChapters = chapterFolders.sortedWith(naturalOrderComparator())
+
+            val resultChapters = sortedChapters.map { chapterFolder ->
+                async(Dispatchers.IO) {
                     try {
                         val images = chapterFolder.listFiles()
-                            .filter {
-                                it.isFile && it.name?.matches(Regex(".*\\.(png|jpg|jpeg)", RegexOption.IGNORE_CASE)) == true
-                            }
+                            .filter { it.isFile && it.name?.isImageFile() == true }
                             .sortedWith(naturalOrderComparator())
 
                         Log.d("MangaReader", "Chapter '${chapterFolder.name}': ${images.size} images")
 
                         if (images.isNotEmpty()) {
-                            resultChapters.add(Chapter(
+                            Chapter(
                                 chapterFolder.name ?: "Unknown Chapter",
                                 images.map { it.uri.toString() }
-                            ))
+                            )
+                        } else {
+                            null
                         }
                     } catch (e: Exception) {
                         Log.e("MangaReader", "Error scanning chapter ${chapterFolder.name}", e)
+                        null
                     }
                 }
-            }
+            }.awaitAll().filterNotNull()
 
             Log.d("MangaReader", "Total chapters loaded: ${resultChapters.size}")
+            resultChapters
+
         } catch (e: Exception) {
             Log.e("MangaReader", "Fatal error in scanChapters", e)
             throw e
         }
-
-        return resultChapters
     }
 
-    private fun naturalOrderComparator(): Comparator<DocumentFile> {
+    // Розширення для перевірки чи файл - зображення
+    private fun String.isImageFile(): Boolean {
+        return matches(Regex(".*\\.(png|jpg|jpeg|webp|gif)", RegexOption.IGNORE_CASE))
+    }
+
+    private fun naturalOrderComparator(): Comparator<androidx.documentfile.provider.DocumentFile> {
         return Comparator { a, b ->
-            try {
-                compareNatural(a.name ?: "", b.name ?: "")
-            } catch (e: Exception) {
-                0
-            }
+            compareNatural(a.name ?: "", b.name ?: "")
         }
     }
 
@@ -197,8 +197,8 @@ class ChaptersActivity : AppCompatActivity() {
 
                 when {
                     aIsNumber && bIsNumber -> {
-                        val aNum = aPart.toIntOrNull() ?: 0
-                        val bNum = bPart.toIntOrNull() ?: 0
+                        val aNum = aPart.toLongOrNull() ?: 0L
+                        val bNum = bPart.toLongOrNull() ?: 0L
                         val comparison = aNum.compareTo(bNum)
                         if (comparison != 0) return comparison
                     }
