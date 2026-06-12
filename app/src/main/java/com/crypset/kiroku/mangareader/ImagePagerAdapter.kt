@@ -4,6 +4,7 @@ import android.net.Uri
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.github.chrisbanes.photoview.PhotoView
@@ -11,7 +12,8 @@ import com.github.chrisbanes.photoview.PhotoView
 class ImagePagerAdapter(
     private val images: List<String>,
     private val onImageClick: () -> Unit,
-    private val onScaleChanged: (Float) -> Unit
+    private val onScaleChanged: (Float) -> Unit,
+    private var fillContainerWidth: Boolean
 ) : RecyclerView.Adapter<ImagePagerAdapter.ImageViewHolder>() {
 
     class ImageViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -32,6 +34,11 @@ class ImagePagerAdapter(
             maximumScale = 5.0f
             mediumScale = 2.5f
             minimumScale = 1.0f
+            scaleType = if (fillContainerWidth) {
+                ImageView.ScaleType.CENTER_CROP
+            } else {
+                ImageView.ScaleType.FIT_CENTER
+            }
 
             // Скидання зуму при зміні сторінки
             setScale(1.0f, false)
@@ -79,4 +86,10 @@ class ImagePagerAdapter(
     }
 
     override fun getItemCount() = images.size
+
+    fun setFillContainerWidth(fillContainerWidth: Boolean) {
+        if (this.fillContainerWidth == fillContainerWidth) return
+        this.fillContainerWidth = fillContainerWidth
+        notifyDataSetChanged()
+    }
 }

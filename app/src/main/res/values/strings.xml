@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">MangaReader</string>
+    <string name="reader_settings_title">Reader settings</string>
+    <string name="reader_container_width_value">Container width: %1$d%%</string>
 </resources>
