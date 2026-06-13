@@ -19,6 +19,8 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import kotlinx.coroutines.*
+import org.json.JSONArray
+import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
     private lateinit var recyclerView: RecyclerView
@@ -60,6 +62,8 @@ class MainActivity : AppCompatActivity() {
         findViewById<FloatingActionButton>(R.id.fabSelectFolder).setOnClickListener {
             checkPermissionAndOpenPicker()
         }
+
+        restoreCachedManga()
     }
 
     override fun onDestroy() {
@@ -103,6 +107,7 @@ class MainActivity : AppCompatActivity() {
                 mangaList.clear()
                 mangaList.addAll(scannedManga)
                 adapter.notifyDataSetChanged()
+                saveMangaCache(uri, scannedManga)
 
                 progressBar.visibility = View.GONE
                 recyclerView.visibility = View.VISIBLE
@@ -124,6 +129,59 @@ class MainActivity : AppCompatActivity() {
                 ).show()
             }
         }
+    }
+
+    private fun restoreCachedManga() {
+        val cachedMangaJson = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
+            .getString(KEY_MANGA_CACHE, null)
+            ?: return
+
+        try {
+            val cachedManga = buildList {
+                val jsonArray = JSONArray(cachedMangaJson)
+                for (index in 0 until jsonArray.length()) {
+                    val item = jsonArray.getJSONObject(index)
+                    add(
+                        MangaItem(
+                            name = item.getString(KEY_MANGA_NAME),
+                            uri = item.getString(KEY_MANGA_URI)
+                        )
+                    )
+                }
+            }
+
+            mangaList.clear()
+            mangaList.addAll(cachedManga)
+            adapter.notifyDataSetChanged()
+        } catch (e: Exception) {
+            Log.e("MangaReader", "Error restoring cached manga", e)
+            clearMangaCache()
+        }
+    }
+
+    private fun saveMangaCache(rootUri: Uri, manga: List<MangaItem>) {
+        val jsonArray = JSONArray()
+        manga.forEach { item ->
+            jsonArray.put(
+                JSONObject()
+                    .put(KEY_MANGA_NAME, item.name)
+                    .put(KEY_MANGA_URI, item.uri)
+            )
+        }
+
+        getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
+            .edit()
+            .putString(KEY_ROOT_URI, rootUri.toString())
+            .putString(KEY_MANGA_CACHE, jsonArray.toString())
+            .apply()
+    }
+
+    private fun clearMangaCache() {
+        getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
+            .edit()
+            .remove(KEY_ROOT_URI)
+            .remove(KEY_MANGA_CACHE)
+            .apply()
     }
 
     private fun scanRootMangaFolderFast(uri: Uri): List<MangaItem> {
@@ -206,6 +264,14 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             return a.compareTo(b, ignoreCase = true)
         }
+    }
+
+    companion object {
+        private const val PREFERENCES_NAME = "manga_library"
+        private const val KEY_ROOT_URI = "root_uri"
+        private const val KEY_MANGA_CACHE = "manga_cache"
+        private const val KEY_MANGA_NAME = "name"
+        private const val KEY_MANGA_URI = "uri"
     }
 }
 

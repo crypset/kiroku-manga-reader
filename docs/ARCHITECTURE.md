@@ -20,6 +20,7 @@ MainActivity -> ChaptersActivity -> ReaderActivity
 flowchart LR
     U["Користувач"] --> P["OpenDocumentTree"]
     P --> M["MainActivity"]
+    M <--> S["SharedPreferences: URI та кеш списку манґи"]
     M -->|DocumentFile: директорії манґи| MA["MangaAdapter"]
     MA -->|manga_name + manga_uri| C["ChaptersActivity"]
     C -->|DocumentFile: глави та зображення| CA["ChapterAdapter"]
@@ -32,18 +33,21 @@ flowchart LR
    на вибраний URI.
 2. На `Dispatchers.IO` коренева директорія перетворюється на список
    `MangaItem`.
-3. URI та назва вибраної манґи передаються в `ChaptersActivity` через `Intent`.
-4. `ChaptersActivity` шукає директорії глав. Якщо їх немає, зображення в
+3. URI кореневої директорії та отриманий список `MangaItem` зберігаються в
+   `SharedPreferences`. Під час наступного запуску `MainActivity` відновлює
+   список із кешу без повторного сканування.
+4. URI та назва вибраної манґи передаються в `ChaptersActivity` через `Intent`.
+5. `ChaptersActivity` шукає директорії глав. Якщо їх немає, зображення в
    директорії манґи утворюють одну главу.
-5. Глави скануються паралельно, після чого `ChapterAdapter` показує їх список.
-6. Назва глави та URI всіх сторінок передаються в `ReaderActivity`.
-7. `ImagePagerAdapter` завантажує сторінки через Glide у `PhotoView`.
+6. Глави скануються паралельно, після чого `ChapterAdapter` показує їх список.
+7. Назва глави та URI всіх сторінок передаються в `ReaderActivity`.
+8. `ImagePagerAdapter` завантажує сторінки через Glide у `PhotoView`.
 
 ## Компоненти
 
 | Компонент | Відповідальність |
 | --- | --- |
-| `MainActivity` | дозволи, вибір кореневої директорії, сканування манґи, навігація до глав |
+| `MainActivity` | дозволи, вибір кореневої директорії, сканування й кешування списку манґи, навігація до глав |
 | `MangaAdapter` | відображення списку `MangaItem` |
 | `MangaItem` | назва манґи та URI її директорії |
 | `ChaptersActivity` | сканування глав і сторінок, фільтрація зображень, навігація до читача |
@@ -154,7 +158,8 @@ kiroku-manga-reader/
    або service.
 2. Перенести стан екранів у ViewModel і використовувати lifecycle-aware
    coroutines.
-3. Зберігати URI бібліотеки та прогрес читання через DataStore або Room.
+3. Перенести кеш бібліотеки з `SharedPreferences` і зберігати прогрес читання
+   через DataStore або Room.
 4. Передавати в читач ідентифікатор глави, а не весь список URI через Binder.
 5. Централізувати рядки, кольори та розміри в Android resources.
 6. Додати unit-тести для файлової логіки та UI/instrumented-тести основного
