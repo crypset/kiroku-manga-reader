@@ -3,16 +3,28 @@
 ## Огляд
 
 Kiroku Manga Reader — одномодульний Android-застосунок на Kotlin із класичним
-View-based UI. Архітектура проста й орієнтована на три послідовні екрани:
+View-based UI. Застосунок читає локальну бібліотеку манґи через Android Storage
+Access Framework, кешує знайдену структуру в SQLite і відкриває сторінки в
+`ViewPager2` із масштабуванням через `PhotoView`.
+
+Головний користувацький шлях складається з трьох екранів:
 
 ```text
 MainActivity -> ChaptersActivity -> ReaderActivity
  бібліотека       список глав        читання сторінок
 ```
 
-Окремих domain/data-шарів, ViewModel, бази даних або dependency injection у
-поточній реалізації немає. Activities відповідають одночасно за UI, навігацію,
-файлове сканування та формування моделей.
+Проєкт не використовує ViewModel, dependency injection або окремі Gradle-модулі.
+Водночас базову бізнес-логіку вже винесено з Activity-класів у невеликі
+компоненти:
+
+- `LibraryScanner` відповідає за обхід SAF/`DocumentFile` і формування моделей.
+- `LibraryStore` відповідає за SQLite-кеш бібліотеки.
+- `ReadingProgressStore` відповідає за прогрес читання.
+- `ReaderSettingsStore` відповідає за налаштування читача.
+- `MangaReaderIntents` централізує navigation extras між екранами.
+- `NaturalSort` і `ImageFileType` містять чисті правила сортування та фільтрації
+  зображень.
 
 ## Потік даних
 
@@ -20,148 +32,205 @@ MainActivity -> ChaptersActivity -> ReaderActivity
 flowchart LR
     U["Користувач"] --> P["OpenDocumentTree"]
     P --> M["MainActivity"]
-    M <--> S["SharedPreferences: URI та кеш списку манґи"]
-    M -->|DocumentFile: директорії манґи| MA["MangaAdapter"]
-    MA -->|manga_name + manga_uri| C["ChaptersActivity"]
-    C -->|DocumentFile: глави та зображення| CA["ChapterAdapter"]
-    CA -->|title + список URI| R["ReaderActivity"]
+    M --> LS["LibraryScanner"]
+    LS --> SAF["DocumentFile / SAF"]
+    LS --> MI["MangaItem + Chapter"]
+    M <--> DB["LibraryStore / SQLite"]
+    M --> MA["MangaAdapter"]
+    MA --> NI["MangaReaderIntents"]
+    NI --> C["ChaptersActivity"]
+    C <--> DB
+    C -->|якщо кешу немає| LS
+    C --> CA["ChapterAdapter"]
+    CA --> RI["MangaReaderIntents"]
+    RI --> R["ReaderActivity"]
     R --> IPA["ImagePagerAdapter"]
-    IPA --> G["Glide + PhotoView"]
+    IPA --> GP["Glide + PhotoView"]
+    R --> RP["ReadingProgressStore"]
+    R --> RS["ReaderSettingsStore"]
 ```
 
-1. `MainActivity` відкриває системний вибір директорії та зберігає read-дозвіл
-   на вибраний URI.
-2. На `Dispatchers.IO` коренева директорія перетворюється на список
-   `MangaItem`.
-3. URI кореневої директорії та отриманий список `MangaItem` зберігаються в
-   `SharedPreferences`. Під час наступного запуску `MainActivity` відновлює
-   список із кешу без повторного сканування.
-4. URI та назва вибраної манґи передаються в `ChaptersActivity` через `Intent`.
-5. `ChaptersActivity` шукає директорії глав. Якщо їх немає, зображення в
-   директорії манґи утворюють одну главу.
-6. Глави скануються паралельно, після чого `ChapterAdapter` показує їх список.
-7. Назва глави та URI всіх сторінок передаються в `ReaderActivity`.
-8. `ImagePagerAdapter` завантажує сторінки через Glide у `PhotoView`.
+1. `MainActivity` відкриває системний picker директорії та зберігає read-дозвіл
+   через `takePersistableUriPermission()`.
+2. `MainActivity` запускає `LibraryScanner.scanLibrary()` на `Dispatchers.IO`.
+3. `LibraryScanner` читає кореневу директорію через `DocumentFile`, знаходить
+   директорії манґи, глави та сторінки, застосовує `NaturalSort` і
+   `ImageFileType`.
+4. Отримані `MangaItem` і `Chapter` зберігаються в SQLite через `LibraryStore`.
+5. Під час наступного запуску `MainActivity` відновлює список манґи з
+   `LibraryStore` без повторного обходу файлової системи.
+6. Перехід до `ChaptersActivity` створюється через
+   `MangaReaderIntents.chaptersIntent()`.
+7. `ChaptersActivity` спершу пробує взяти глави з `LibraryStore`. Якщо кешу для
+   вибраної манґи немає, екран запускає `LibraryScanner.scanChapters()` і
+   зберігає результат назад у SQLite.
+8. Перехід до `ReaderActivity` створюється через
+   `MangaReaderIntents.readerIntent()`. У читач передається назва глави та
+   список URI сторінок.
+9. `ReaderActivity` показує сторінки через `ImagePagerAdapter`, `Glide` і
+   `PhotoView`.
+10. Поточна сторінка та статус прочитання зберігаються в `ReadingProgressStore`.
+11. Ширина контейнера сторінки зберігається в `ReaderSettingsStore`.
 
 ## Компоненти
 
 | Компонент | Відповідальність |
 | --- | --- |
-| `MainActivity` | дозволи, вибір кореневої директорії, сканування й кешування списку манґи, навігація до глав |
+| `MainActivity` | UI бібліотеки, вибір директорії, запуск повного сканування, меню бібліотеки, показ прогресу читання по манґах, навігація до глав |
+| `ChaptersActivity` | UI списку глав, відновлення або сканування глав, показ прогресу по главі, навігація до читача |
+| `ReaderActivity` | `ViewPager2`, індикатор сторінки, fullscreen-панель, налаштування ширини сторінки, збереження прогресу |
+| `LibraryScanner` | SAF-сканування бібліотеки, глав і сторінок; підтримка режиму one-shot без директорій глав |
+| `LibraryStore` | читання, запис і очищення SQLite-кешу бібліотеки |
+| `LibraryDatabaseSchema` | назви таблиць/колонок і створення SQLite-схеми |
+| `ReadingProgressStore` | збереження останньої сторінки, прочитаних глав і агрегованого прогресу манґи |
+| `ReaderSettingsStore` | збереження ширини контейнера сторінки в діапазоні `50%..200%` |
+| `MangaReaderIntents` | типізовані фабрики `Intent` і парсинг navigation arguments |
+| `NaturalSort` | природне сортування назв із числовими частинами |
+| `ImageFileType` | список підтримуваних розширень зображень |
 | `MangaAdapter` | відображення списку `MangaItem` |
-| `MangaItem` | назва манґи та URI її директорії |
-| `ChaptersActivity` | сканування глав і сторінок, фільтрація зображень, навігація до читача |
-| `ChapterAdapter` | відображення назв глав і кількості сторінок |
-| `Chapter` | назва глави та список URI сторінок |
-| `ReaderActivity` | ViewPager2, індикатор сторінки, fullscreen-панель, орієнтація |
-| `ImagePagerAdapter` | завантаження сторінок, масштабування та обробка дотиків |
+| `ChapterAdapter` | відображення списку `Chapter` |
+| `ImagePagerAdapter` | завантаження сторінок, налаштування масштабу та обробка touch-жестів |
+| `MangaItem` | модель манґи: назва, URI директорії, глави, прогрес |
+| `Chapter` | модель глави: назва, URI директорії, список URI сторінок, прогрес |
+
+## Локальне зберігання
+
+### SQLite-кеш бібліотеки
+
+`LibraryStore` використовує `SQLiteOpenHelper` і схему з `LibraryDatabaseSchema`.
+База має чотири таблиці:
+
+| Таблиця | Призначення |
+| --- | --- |
+| `metadata` | службові значення, зокрема URI кореневої директорії |
+| `manga` | список манґи |
+| `chapters` | глави конкретної манґи |
+| `pages` | URI сторінок конкретної глави |
+
+Повний rescan очищає таблиці бібліотеки й записує актуальну структуру заново.
+Очищення кешу бібліотеки не видаляє прогрес читання.
+
+### Прогрес читання
+
+`ReadingProgressStore` зберігає прогрес у `SharedPreferences` як JSON-об'єкт,
+індексований за `chapterUri`. Запис містить:
+
+- URI та назву манґи;
+- URI та назву глави;
+- індекс поточної сторінки;
+- загальну кількість сторінок;
+- ознаку завершення глави;
+- час оновлення.
+
+`getMangaProgress()` агрегує прогрес усіх глав конкретної манґи для показу
+статусу в бібліотеці.
+
+### Налаштування читача
+
+`ReaderSettingsStore` зберігає ширину контейнера сторінки в
+`SharedPreferences`. Допустимий діапазон: `50%..200%`, значення за замовчуванням:
+`100%`.
 
 ## Навігаційний контракт
 
-Навігація реалізована через явні `Intent`.
+Навігація реалізована через явні `Intent`, але raw extras не розкидані по
+Activity-класах. Вони інкапсульовані в `MangaReaderIntents`.
 
-| Перехід | Extras |
-| --- | --- |
-| `MainActivity` -> `ChaptersActivity` | `manga_name: String`, `manga_uri: String` |
-| `ChaptersActivity` -> `ReaderActivity` | `title: String`, `images: ArrayList<String>` |
+| Перехід | Фабрика | Дані |
+| --- | --- | --- |
+| `MainActivity` -> `ChaptersActivity` | `chaptersIntent()` | `manga_name`, `manga_uri` |
+| `ChaptersActivity` -> `ReaderActivity` | `readerIntent()` | `title`, `images`, `manga_name`, `manga_uri`, `chapter_name`, `chapter_uri` |
 
-Ці ключі є неформальним контрактом між Activities. У разі розширення застосунку
-їх доцільно винести в константи або типізовані navigation arguments.
+Для дуже великих глав передавання всього списку URI сторінок через Binder може
+стати обмеженням. Майбутній напрямок розвитку — передавати ідентифікатор глави,
+а сторінки дочитувати в `ReaderActivity` із локального сховища.
 
 ## Конкурентність
 
-- `MainActivity` сканує кореневу директорію на `Dispatchers.IO`.
-- `ChaptersActivity` отримує список глав на `Dispatchers.IO`.
-- Кожна директорія глави сканується окремим `async(Dispatchers.IO)`.
-- Результати повертаються на `Dispatchers.Main` для оновлення адаптерів.
-- Обидві Activities скасовують власний `CoroutineScope` в `onDestroy`.
+- Activity-класи мають власний `CoroutineScope(Dispatchers.Main + Job())`.
+- `MainActivity` запускає повне сканування бібліотеки на `Dispatchers.IO`.
+- `ChaptersActivity` відновлює або сканує глави на `Dispatchers.IO`.
+- `LibraryScanner` сканує манґи та директорії глав через `async(Dispatchers.IO)`.
+- Результати повертаються на main thread для оновлення адаптерів.
+- Scope скасовується в `onDestroy()`.
 
 ## Структура проєкту
 
-Нижче наведено структуру файлів, що зберігаються в репозиторії. Згенеровані
-директорії на кшталт `.gradle/`, `.idea/`, `.kotlin/` та `app/build/` не є
-частиною вихідного коду.
+Нижче наведено вихідні файли, важливі для архітектури. Згенеровані директорії
+на кшталт `.gradle/`, `.idea/`, `.kotlin/` та `app/build/` не є частиною
+вихідного коду.
 
 ```text
 kiroku-manga-reader/
 ├── app/
-│   ├── build.gradle.kts                 # конфігурація Android-модуля та залежності
-│   ├── proguard-rules.pro               # правила R8/ProGuard
+│   ├── build.gradle.kts
 │   └── src/
-│       ├── androidTest/
-│       │   └── java/com/example/mangareader/
-│       │       └── ExampleInstrumentedTest.kt.bak
 │       ├── main/
-│       │   ├── AndroidManifest.xml       # дозволи, Activities, теми
+│       │   ├── AndroidManifest.xml
 │       │   ├── java/com/crypset/kiroku/mangareader/
-│       │   │   ├── MainActivity.kt      # вибір і сканування бібліотеки
-│       │   │   ├── MangaAdapter.kt      # список манґи
-│       │   │   ├── ChaptersActivity.kt  # сканування та список глав
-│       │   │   ├── ChapterAdapter.kt    # список глав
-│       │   │   ├── ReaderActivity.kt    # екран читання
-│       │   │   └── ImagePagerAdapter.kt # сторінки, Glide та PhotoView
+│       │   │   ├── MainActivity.kt
+│       │   │   ├── ChaptersActivity.kt
+│       │   │   ├── ReaderActivity.kt
+│       │   │   ├── MangaAdapter.kt
+│       │   │   ├── ChapterAdapter.kt
+│       │   │   ├── ImagePagerAdapter.kt
+│       │   │   ├── LibraryScanner.kt
+│       │   │   ├── LibraryStore.kt
+│       │   │   ├── LibraryDatabaseSchema.kt
+│       │   │   ├── ReadingProgressStore.kt
+│       │   │   ├── ReaderSettingsStore.kt
+│       │   │   ├── MangaReaderIntents.kt
+│       │   │   ├── MangaModels.kt
+│       │   │   ├── ReadingProgressModels.kt
+│       │   │   ├── NaturalSort.kt
+│       │   │   └── ImageFileType.kt
 │       │   └── res/
-│       │       ├── drawable/             # фон панелі та launcher-вектори
+│       │       ├── drawable/
 │       │       ├── layout/
-│       │       │   ├── activity_main.xml
-│       │       │   ├── activity_chapters.xml
-│       │       │   ├── activity_reader.xml
-│       │       │   ├── item_chapter.xml
-│       │       │   └── item_manga_page.xml
-│       │       ├── mipmap-*/             # launcher-іконки різної щільності
+│       │       ├── menu/
+│       │       ├── mipmap-*/
 │       │       ├── values/
-│       │       │   ├── colors.xml
-│       │       │   ├── strings.xml
-│       │       │   └── themes.xml
 │       │       └── xml/
-│       │           ├── backup_rules.xml
-│       │           └── data_extraction_rules.xml
 │       └── test/
-│           └── java/com/example/mangareader/
-│               └── ExampleUnitTest.kt.bak
+│           └── java/com/crypset/kiroku/mangareader/
+│               └── NaturalSortTest.kt
 ├── docs/
-│   ├── README.md                         # огляд і використання
-│   ├── DEVELOPMENT.md                    # інструкції для розробників
-│   └── ARCHITECTURE.md                   # цей документ
+│   ├── README.md
+│   ├── DEVELOPMENT.md
+│   ├── ARCHITECTURE.md
+│   └── PRODUCT_CHECKLIST.md
 ├── gradle/
-│   ├── libs.versions.toml                # каталог версій plugins/libraries
-│   └── wrapper/
-│       ├── gradle-wrapper.jar
-│       └── gradle-wrapper.properties
-├── .gitignore
-├── build.gradle.kts                      # коренева конфігурація plugins
-├── gradle.properties                     # глобальні параметри Gradle/AndroidX
-├── gradlew                               # Gradle wrapper для Unix
-├── gradlew.bat                           # Gradle wrapper для Windows
+├── build.gradle.kts
+├── gradle.properties
+├── gradlew
+├── gradlew.bat
 ├── LICENSE
 ├── README.md
-└── settings.gradle.kts                   # repositories, назва та модулі
+└── settings.gradle.kts
 ```
 
 ## Ресурси інтерфейсу
 
-| Layout | Призначення |
+| Layout/Menu | Призначення |
 | --- | --- |
-| `activity_main.xml` | заголовок, список манґи, progress bar і кнопка вибору директорії |
-| `activity_chapters.xml` | список глав і progress bar |
-| `activity_reader.xml` | ViewPager2 та компактна панель читача |
-| `item_chapter.xml` | спільна картка для манґи й глави |
-| `item_manga_page.xml` | одна сторінка з `PhotoView` |
+| `activity_main.xml` | toolbar бібліотеки, список манґи, empty/loading states і FAB вибору директорії |
+| `activity_chapters.xml` | toolbar із назвою манґи, список глав, empty/loading states |
+| `activity_reader.xml` | повноекранний `ViewPager2`, індикатор сторінки й кнопка налаштувань читача |
+| `item_chapter.xml` | спільний item для манґи й глави |
+| `item_manga_page.xml` | контейнер сторінки з `PhotoView` |
+| `menu_main.xml` | очищення прогресу, зміна бібліотеки, rescan, очищення кешу |
 
 ## Межі та напрямки розвитку
 
-Поточна структура добре підходить для невеликого локального читача, але зі
-зростанням функціональності Activities стануть перевантаженими. Найприродніші
-напрямки розвитку:
+Поточна структура вже прибирає основні god-класи з файлового сканування, але
+залишається простою одно-модульною архітектурою. Найкорисніші наступні кроки:
 
-1. Винести сканування, natural sorting і перевірку форматів у окремий repository
-   або service.
-2. Перенести стан екранів у ViewModel і використовувати lifecycle-aware
+1. Перенести стан екранів у ViewModel і використовувати lifecycle-aware
    coroutines.
-3. Перенести кеш бібліотеки з `SharedPreferences` і зберігати прогрес читання
-   через DataStore або Room.
-4. Передавати в читач ідентифікатор глави, а не весь список URI через Binder.
-5. Централізувати рядки, кольори та розміри в Android resources.
-6. Додати unit-тести для файлової логіки та UI/instrumented-тести основного
-   сценарію.
-
+2. Замінити JSON у `ReadingProgressStore` на DataStore або SQLite/Room, якщо
+   прогресу стане багато.
+3. Передавати в читач ідентифікатор глави, а не весь список URI через `Intent`.
+4. Покрити `LibraryScanner` unit/instrumented-тестами з тестовою файловою
+   структурою.
+5. Централізувати hardcoded UI-рядки з адаптерів у `strings.xml`.
+6. Переглянути політику дозволів перед публікацією в Google Play.
