@@ -21,4 +21,6 @@
     <string name="clear_reading_progress_action">Clear</string>
     <string name="reading_progress_cleared">Reading progress cleared</string>
     <string name="reader_settings_message">Reading progress is saved automatically while you read.</string>
+    <string name="rescan_library_title">Rescan library</string>
+    <string name="library_rescanned">Library cache updated</string>
 </resources>

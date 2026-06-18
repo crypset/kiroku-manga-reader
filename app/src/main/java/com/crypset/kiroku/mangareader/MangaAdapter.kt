@@ -42,7 +42,11 @@ class MangaAdapter(
                 ""
             }
             "Last read: ${progress.lastChapterName}, $pageText$chapterText"
-        } ?: context.getString(R.string.item_default_subtitle)
+        } ?: if (manga.chapters.isNotEmpty()) {
+            "${manga.chapters.size} chapters"
+        } else {
+            context.getString(R.string.item_default_subtitle)
+        }
         holder.statusChip.visibility = View.VISIBLE
         holder.statusChip.text = if (manga.progress == null) {
             context.getString(R.string.item_status_new)

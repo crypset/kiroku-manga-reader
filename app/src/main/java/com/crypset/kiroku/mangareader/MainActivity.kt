@@ -18,11 +18,20 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.documentfile.provider.DocumentFile
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.floatingactionbutton.FloatingActionButton
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -100,6 +109,10 @@ class MainActivity : AppCompatActivity() {
                 confirmClearReadingProgress()
                 true
             }
+            R.id.action_rescan_library -> {
+                rescanCachedLibrary()
+                true
+            }
             else -> super.onOptionsItemSelected(item)
         }
     }
@@ -120,7 +133,8 @@ class MainActivity : AppCompatActivity() {
             }
         } else {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
-                == PackageManager.PERMISSION_GRANTED) {
+                == PackageManager.PERMISSION_GRANTED
+            ) {
                 openFolderPicker()
             } else {
                 permissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
@@ -138,7 +152,7 @@ class MainActivity : AppCompatActivity() {
         scope.launch {
             try {
                 val scannedManga = withContext(Dispatchers.IO) {
-                    scanRootMangaFolderFast(uri)
+                    scanRootMangaFolder(uri)
                 }
 
                 mangaList.clear()
@@ -152,6 +166,12 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(
                         this@MainActivity,
                         "No manga folders found",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    Toast.makeText(
+                        this@MainActivity,
+                        R.string.library_rescanned,
                         Toast.LENGTH_SHORT
                     ).show()
                 }
@@ -183,7 +203,8 @@ class MainActivity : AppCompatActivity() {
                     add(
                         MangaItem(
                             name = item.getString(KEY_MANGA_NAME),
-                            uri = item.getString(KEY_MANGA_URI)
+                            uri = item.getString(KEY_MANGA_URI),
+                            chapters = parseChapters(item.optJSONArray(KEY_MANGA_CHAPTERS))
                         )
                     )
                 }
@@ -207,6 +228,7 @@ class MainActivity : AppCompatActivity() {
                 JSONObject()
                     .put(KEY_MANGA_NAME, item.name)
                     .put(KEY_MANGA_URI, item.uri)
+                    .put(KEY_MANGA_CHAPTERS, chaptersToJson(item.chapters))
             )
         }
 
@@ -215,6 +237,48 @@ class MainActivity : AppCompatActivity() {
             .putString(KEY_ROOT_URI, rootUri.toString())
             .putString(KEY_MANGA_CACHE, jsonArray.toString())
             .apply()
+    }
+
+    private fun parseChapters(chaptersJson: JSONArray?): List<Chapter> {
+        if (chaptersJson == null) return emptyList()
+
+        return buildList {
+            for (chapterIndex in 0 until chaptersJson.length()) {
+                val chapterJson = chaptersJson.getJSONObject(chapterIndex)
+                val imagesJson = chapterJson.optJSONArray(KEY_CHAPTER_IMAGES) ?: JSONArray()
+                val images = buildList {
+                    for (imageIndex in 0 until imagesJson.length()) {
+                        add(imagesJson.getString(imageIndex))
+                    }
+                }
+
+                add(
+                    Chapter(
+                        name = chapterJson.getString(KEY_CHAPTER_NAME),
+                        uri = chapterJson.getString(KEY_CHAPTER_URI),
+                        images = images
+                    )
+                )
+            }
+        }
+    }
+
+    private fun chaptersToJson(chapters: List<Chapter>): JSONArray {
+        val chaptersJson = JSONArray()
+        chapters.forEach { chapter ->
+            val imagesJson = JSONArray()
+            chapter.images.forEach { imageUri ->
+                imagesJson.put(imageUri)
+            }
+
+            chaptersJson.put(
+                JSONObject()
+                    .put(KEY_CHAPTER_NAME, chapter.name)
+                    .put(KEY_CHAPTER_URI, chapter.uri)
+                    .put(KEY_CHAPTER_IMAGES, imagesJson)
+            )
+        }
+        return chaptersJson
     }
 
     private fun clearMangaCache() {
@@ -273,40 +337,108 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun scanRootMangaFolderFast(uri: Uri): List<MangaItem> {
+    private fun rescanCachedLibrary() {
+        val rootUri = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
+            .getString(KEY_ROOT_URI, null)
+
+        if (rootUri == null) {
+            checkPermissionAndOpenPicker()
+            return
+        }
+
+        scanRootMangaFolderAsync(Uri.parse(rootUri))
+    }
+
+    private suspend fun scanRootMangaFolder(uri: Uri): List<MangaItem> = coroutineScope {
         try {
-            val rootFolder = androidx.documentfile.provider.DocumentFile.fromTreeUri(this, uri)
+            val rootFolder = DocumentFile.fromTreeUri(this@MainActivity, uri)
 
             if (rootFolder == null || !rootFolder.exists()) {
                 Log.e("MangaReader", "Root folder is null or doesn't exist")
-                return emptyList()
+                return@coroutineScope emptyList()
             }
 
             Log.d("MangaReader", "=== Scanning root folder: ${rootFolder.name} ===")
 
-            // ШВИДКА обробка - просто отримуємо список папок без додаткових перевірок
             val mangaFolders = try {
                 rootFolder.listFiles()
                     .filter { it.isDirectory }
                     .sortedWith(naturalOrderComparator())
-                    .map { folder ->
-                        MangaItem(
-                            name = folder.name ?: "Unknown Manga",
-                            uri = folder.uri.toString()
-                        )
-                    }
             } catch (e: Exception) {
                 Log.e("MangaReader", "Error listing manga folders", e)
                 emptyList()
             }
 
             Log.d("MangaReader", "Found ${mangaFolders.size} manga folders")
-            return mangaFolders
-
+            mangaFolders.map { mangaFolder ->
+                async(Dispatchers.IO) {
+                    MangaItem(
+                        name = mangaFolder.name ?: "Unknown Manga",
+                        uri = mangaFolder.uri.toString(),
+                        chapters = scanChapters(mangaFolder)
+                    )
+                }
+            }.awaitAll()
         } catch (e: Exception) {
             Log.e("MangaReader", "Fatal error in scanRootMangaFolder", e)
             throw e
         }
+    }
+
+    private suspend fun scanChapters(mangaFolder: DocumentFile): List<Chapter> = coroutineScope {
+        val allFiles = try {
+            mangaFolder.listFiles().toList()
+        } catch (e: Exception) {
+            Log.e("MangaReader", "Error listing files for ${mangaFolder.name}", e)
+            return@coroutineScope emptyList()
+        }
+
+        val chapterFolders = allFiles.filter { it.isDirectory }
+
+        if (chapterFolders.isEmpty()) {
+            val images = allFiles
+                .filter { it.isFile && it.name?.isImageFile() == true }
+                .sortedWith(naturalOrderComparator())
+
+            return@coroutineScope if (images.isNotEmpty()) {
+                listOf(
+                    Chapter(
+                        name = mangaFolder.name ?: "Chapter",
+                        uri = mangaFolder.uri.toString(),
+                        images = images.map { it.uri.toString() }
+                    )
+                )
+            } else {
+                emptyList()
+            }
+        }
+
+        chapterFolders
+            .sortedWith(naturalOrderComparator())
+            .map { chapterFolder ->
+                async(Dispatchers.IO) {
+                    val images = try {
+                        chapterFolder.listFiles()
+                            .filter { it.isFile && it.name?.isImageFile() == true }
+                            .sortedWith(naturalOrderComparator())
+                    } catch (e: Exception) {
+                        Log.e("MangaReader", "Error scanning chapter ${chapterFolder.name}", e)
+                        emptyList()
+                    }
+
+                    if (images.isNotEmpty()) {
+                        Chapter(
+                            name = chapterFolder.name ?: "Unknown Chapter",
+                            uri = chapterFolder.uri.toString(),
+                            images = images.map { it.uri.toString() }
+                        )
+                    } else {
+                        null
+                    }
+                }
+            }
+            .awaitAll()
+            .filterNotNull()
     }
 
     private fun openMangaChapters(manga: MangaItem) {
@@ -316,7 +448,7 @@ class MainActivity : AppCompatActivity() {
         startActivity(intent)
     }
 
-    private fun naturalOrderComparator(): Comparator<androidx.documentfile.provider.DocumentFile> {
+    private fun naturalOrderComparator(): Comparator<DocumentFile> {
         return Comparator { a, b ->
             compareNatural(a.name ?: "", b.name ?: "")
         }
@@ -355,17 +487,26 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun String.isImageFile(): Boolean {
+        return matches(Regex(".*\\.(png|jpg|jpeg|webp|gif)", RegexOption.IGNORE_CASE))
+    }
+
     companion object {
         private const val PREFERENCES_NAME = "manga_library"
         private const val KEY_ROOT_URI = "root_uri"
         private const val KEY_MANGA_CACHE = "manga_cache"
         private const val KEY_MANGA_NAME = "name"
         private const val KEY_MANGA_URI = "uri"
+        private const val KEY_MANGA_CHAPTERS = "chapters"
+        private const val KEY_CHAPTER_NAME = "name"
+        private const val KEY_CHAPTER_URI = "uri"
+        private const val KEY_CHAPTER_IMAGES = "images"
     }
 }
 
 data class MangaItem(
     val name: String,
     val uri: String,
+    val chapters: List<Chapter> = emptyList(),
     val progress: MangaReadingProgress? = null
 )

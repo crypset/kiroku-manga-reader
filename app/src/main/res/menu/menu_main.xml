@@ -6,4 +6,9 @@
         android:id="@+id/action_clear_reading_progress"
         android:title="@string/clear_reading_progress_title"
         app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_rescan_library"
+        android:title="@string/rescan_library_title"
+        app:showAsAction="never" />
 </menu>
