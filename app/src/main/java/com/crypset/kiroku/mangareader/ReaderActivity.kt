@@ -1,10 +1,13 @@
 package com.crypset.kiroku.mangareader
 
+import android.content.Context
 import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.view.MotionEvent
 import android.view.View
 import android.widget.ImageButton
+import android.widget.LinearLayout
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -18,12 +21,14 @@ class ReaderActivity : AppCompatActivity() {
     private lateinit var toolbar: View
     private lateinit var rotateButton: ImageButton
     private lateinit var settingsButton: ImageButton
+    private lateinit var imagePagerAdapter: ImagePagerAdapter
     private lateinit var progressStore: ReadingProgressStore
     private var mangaName: String = ""
     private var mangaUri: String = ""
     private var chapterName: String = ""
     private var chapterUri: String = ""
     private var images: List<String> = emptyList()
+    private var pageContainerWidthPercent = DEFAULT_PAGE_CONTAINER_WIDTH_PERCENT
     private var isToolbarVisible = true
     private var isLandscape = false
     private var isPageZoomed = false
@@ -38,6 +43,12 @@ class ReaderActivity : AppCompatActivity() {
         rotateButton = findViewById(R.id.rotateButton)
         settingsButton = findViewById(R.id.settingsButton)
         progressStore = ReadingProgressStore(this)
+        pageContainerWidthPercent = getReaderSettings()
+            .getInt(KEY_PAGE_CONTAINER_WIDTH_PERCENT, DEFAULT_PAGE_CONTAINER_WIDTH_PERCENT)
+            .coerceIn(
+                MIN_PAGE_CONTAINER_WIDTH_PERCENT,
+                MAX_PAGE_CONTAINER_WIDTH_PERCENT
+            )
 
         images = intent.getStringArrayListExtra("images") ?: arrayListOf()
         val title = intent.getStringExtra("title") ?: "Chapter"
@@ -49,15 +60,16 @@ class ReaderActivity : AppCompatActivity() {
         supportActionBar?.title = title
 
         // Адаптер з callback для відстеження зуму
-        val adapter = ImagePagerAdapter(
+        imagePagerAdapter = ImagePagerAdapter(
             images = images,
+            pageContainerWidthPercent = pageContainerWidthPercent,
             onImageClick = { toggleToolbar() },
             onScaleChange = { isZoomed ->
                 isPageZoomed = isZoomed
                 viewPager.isUserInputEnabled = !isZoomed
             }
         )
-        viewPager.adapter = adapter
+        viewPager.adapter = imagePagerAdapter
 
         // КРИТИЧНО: Перехоплюємо touch events на рівні RecyclerView
         setupTouchInterceptor()
@@ -158,14 +170,81 @@ class ReaderActivity : AppCompatActivity() {
     }
 
     private fun showReaderSettings() {
+        val dialogView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(12), dp(24), dp(4))
+        }
+        val descriptionView = TextView(this).apply {
+            setText(R.string.reader_settings_message)
+            setPadding(0, 0, 0, dp(16))
+        }
+        val widthValueView = TextView(this).apply {
+            text = getString(R.string.reader_container_width_value, pageContainerWidthPercent)
+            setPadding(0, 0, 0, dp(8))
+        }
+        val widthSeekBar = SeekBar(this).apply {
+            max = MAX_PAGE_CONTAINER_WIDTH_PERCENT - MIN_PAGE_CONTAINER_WIDTH_PERCENT
+            progress = pageContainerWidthPercent - MIN_PAGE_CONTAINER_WIDTH_PERCENT
+        }
+
+        widthSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                if (!fromUser) return
+
+                val widthPercent = MIN_PAGE_CONTAINER_WIDTH_PERCENT + progress
+                widthValueView.text = getString(
+                    R.string.reader_container_width_value,
+                    widthPercent
+                )
+                updatePageContainerWidth(widthPercent)
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar) = Unit
+
+            override fun onStopTrackingTouch(seekBar: SeekBar) = Unit
+        })
+
+        dialogView.addView(descriptionView)
+        dialogView.addView(widthValueView)
+        dialogView.addView(widthSeekBar)
+
         AlertDialog.Builder(this)
             .setTitle(R.string.reader_settings_title)
-            .setMessage(R.string.reader_settings_message)
-            .setNegativeButton(android.R.string.cancel, null)
+            .setView(dialogView)
+            .setNegativeButton(android.R.string.ok, null)
             .setPositiveButton(R.string.clear_reading_progress_action) { _, _ ->
                 progressStore.clearAll()
                 Toast.makeText(this, R.string.reading_progress_cleared, Toast.LENGTH_SHORT).show()
             }
             .show()
+    }
+
+    private fun updatePageContainerWidth(widthPercent: Int) {
+        pageContainerWidthPercent = widthPercent.coerceIn(
+            MIN_PAGE_CONTAINER_WIDTH_PERCENT,
+            MAX_PAGE_CONTAINER_WIDTH_PERCENT
+        )
+        getReaderSettings()
+            .edit()
+            .putInt(KEY_PAGE_CONTAINER_WIDTH_PERCENT, pageContainerWidthPercent)
+            .apply()
+        imagePagerAdapter.updatePageContainerWidthPercent(pageContainerWidthPercent)
+        isPageZoomed = false
+        viewPager.isUserInputEnabled = true
+    }
+
+    private fun getReaderSettings() =
+        getSharedPreferences(READER_SETTINGS_PREFS, Context.MODE_PRIVATE)
+
+    private fun dp(value: Int): Int {
+        return (value * resources.displayMetrics.density).toInt()
+    }
+
+    companion object {
+        private const val READER_SETTINGS_PREFS = "reader_settings"
+        private const val KEY_PAGE_CONTAINER_WIDTH_PERCENT = "page_container_width_percent"
+        private const val MIN_PAGE_CONTAINER_WIDTH_PERCENT = 50
+        private const val MAX_PAGE_CONTAINER_WIDTH_PERCENT = 200
+        private const val DEFAULT_PAGE_CONTAINER_WIDTH_PERCENT = 100
     }
 }
