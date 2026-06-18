@@ -21,6 +21,11 @@
     <string name="clear_reading_progress_action">Clear</string>
     <string name="reading_progress_cleared">Reading progress cleared</string>
     <string name="reader_settings_message">Reading progress is saved automatically while you read.</string>
+    <string name="select_library_folder_title">Change library folder</string>
     <string name="rescan_library_title">Rescan library</string>
     <string name="library_rescanned">Library cache updated</string>
+    <string name="clear_library_cache_title">Clear library cache</string>
+    <string name="clear_library_cache_message">Remove the saved library list and selected folder? Reading progress will stay saved.</string>
+    <string name="clear_library_cache_action">Clear cache</string>
+    <string name="library_cache_cleared">Library cache cleared</string>
 </resources>

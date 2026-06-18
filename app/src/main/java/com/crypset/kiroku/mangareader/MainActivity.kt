@@ -1,13 +1,8 @@
 package com.crypset.kiroku.mangareader
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.os.Environment
-import android.provider.Settings
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
@@ -17,7 +12,6 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -32,8 +26,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
     private lateinit var recyclerView: RecyclerView
@@ -41,6 +33,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var emptyState: View
     private lateinit var loadingState: View
     private lateinit var adapter: MangaAdapter
+    private lateinit var libraryStore: LibraryStore
     private lateinit var progressStore: ReadingProgressStore
     private val mangaList = mutableListOf<MangaItem>()
     private val scope = CoroutineScope(Dispatchers.Main + Job())
@@ -52,12 +45,6 @@ class MainActivity : AppCompatActivity() {
                 Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
             scanRootMangaFolderAsync(it)
-        }
-    }
-
-    private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) {
-            openFolderPicker()
         }
     }
 
@@ -74,6 +61,7 @@ class MainActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.progressBar)
         emptyState = findViewById(R.id.emptyState)
         loadingState = findViewById(R.id.loadingState)
+        libraryStore = LibraryStore(this)
         progressStore = ReadingProgressStore(this)
 
         recyclerView.layoutManager = LinearLayoutManager(this)
@@ -90,7 +78,7 @@ class MainActivity : AppCompatActivity() {
             checkPermissionAndOpenPicker()
         }
 
-        restoreCachedManga()
+        restoreSavedManga()
     }
 
     override fun onResume() {
@@ -109,8 +97,16 @@ class MainActivity : AppCompatActivity() {
                 confirmClearReadingProgress()
                 true
             }
+            R.id.action_select_library_folder -> {
+                checkPermissionAndOpenPicker()
+                true
+            }
             R.id.action_rescan_library -> {
                 rescanCachedLibrary()
+                true
+            }
+            R.id.action_clear_library_cache -> {
+                confirmClearLibraryCache()
                 true
             }
             else -> super.onOptionsItemSelected(item)
@@ -123,23 +119,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkPermissionAndOpenPicker() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (Environment.isExternalStorageManager()) {
-                openFolderPicker()
-            } else {
-                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                intent.data = Uri.parse("package:$packageName")
-                startActivity(intent)
-            }
-        } else {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
-                == PackageManager.PERMISSION_GRANTED
-            ) {
-                openFolderPicker()
-            } else {
-                permissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
-            }
-        }
+        openFolderPicker()
     }
 
     private fun openFolderPicker() {
@@ -158,7 +138,9 @@ class MainActivity : AppCompatActivity() {
                 mangaList.clear()
                 mangaList.addAll(withMangaProgress(scannedManga))
                 adapter.notifyDataSetChanged()
-                saveMangaCache(uri, scannedManga)
+                withContext(Dispatchers.IO) {
+                    libraryStore.saveLibrary(uri.toString(), scannedManga)
+                }
 
                 showLoading(false)
 
@@ -187,106 +169,31 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun restoreCachedManga() {
-        val cachedMangaJson = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
-            .getString(KEY_MANGA_CACHE, null)
-            ?: run {
-                updateContentVisibility()
-                return
-            }
+    private fun restoreSavedManga() {
+        showLoading(true)
 
-        try {
-            val cachedManga = buildList {
-                val jsonArray = JSONArray(cachedMangaJson)
-                for (index in 0 until jsonArray.length()) {
-                    val item = jsonArray.getJSONObject(index)
-                    add(
-                        MangaItem(
-                            name = item.getString(KEY_MANGA_NAME),
-                            uri = item.getString(KEY_MANGA_URI),
-                            chapters = parseChapters(item.optJSONArray(KEY_MANGA_CHAPTERS))
-                        )
-                    )
-                }
-            }
-
-            mangaList.clear()
-            mangaList.addAll(withMangaProgress(cachedManga))
-            adapter.notifyDataSetChanged()
-            updateContentVisibility()
-        } catch (e: Exception) {
-            Log.e("MangaReader", "Error restoring cached manga", e)
-            clearMangaCache()
-            updateContentVisibility()
-        }
-    }
-
-    private fun saveMangaCache(rootUri: Uri, manga: List<MangaItem>) {
-        val jsonArray = JSONArray()
-        manga.forEach { item ->
-            jsonArray.put(
-                JSONObject()
-                    .put(KEY_MANGA_NAME, item.name)
-                    .put(KEY_MANGA_URI, item.uri)
-                    .put(KEY_MANGA_CHAPTERS, chaptersToJson(item.chapters))
-            )
-        }
-
-        getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
-            .edit()
-            .putString(KEY_ROOT_URI, rootUri.toString())
-            .putString(KEY_MANGA_CACHE, jsonArray.toString())
-            .apply()
-    }
-
-    private fun parseChapters(chaptersJson: JSONArray?): List<Chapter> {
-        if (chaptersJson == null) return emptyList()
-
-        return buildList {
-            for (chapterIndex in 0 until chaptersJson.length()) {
-                val chapterJson = chaptersJson.getJSONObject(chapterIndex)
-                val imagesJson = chapterJson.optJSONArray(KEY_CHAPTER_IMAGES) ?: JSONArray()
-                val images = buildList {
-                    for (imageIndex in 0 until imagesJson.length()) {
-                        add(imagesJson.getString(imageIndex))
-                    }
+        scope.launch {
+            try {
+                val savedManga = withContext(Dispatchers.IO) {
+                    libraryStore.getManga()
                 }
 
-                add(
-                    Chapter(
-                        name = chapterJson.getString(KEY_CHAPTER_NAME),
-                        uri = chapterJson.getString(KEY_CHAPTER_URI),
-                        images = images
-                    )
-                )
+                mangaList.clear()
+                mangaList.addAll(withMangaProgress(savedManga))
+                adapter.notifyDataSetChanged()
+                showLoading(false)
+            } catch (e: Exception) {
+                Log.e("MangaReader", "Error restoring saved manga", e)
+                withContext(Dispatchers.IO) {
+                    libraryStore.clearLibrary()
+                }
+                showLoading(false)
             }
         }
-    }
-
-    private fun chaptersToJson(chapters: List<Chapter>): JSONArray {
-        val chaptersJson = JSONArray()
-        chapters.forEach { chapter ->
-            val imagesJson = JSONArray()
-            chapter.images.forEach { imageUri ->
-                imagesJson.put(imageUri)
-            }
-
-            chaptersJson.put(
-                JSONObject()
-                    .put(KEY_CHAPTER_NAME, chapter.name)
-                    .put(KEY_CHAPTER_URI, chapter.uri)
-                    .put(KEY_CHAPTER_IMAGES, imagesJson)
-            )
-        }
-        return chaptersJson
     }
 
     private fun clearMangaCache() {
-        getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
-            .edit()
-            .remove(KEY_ROOT_URI)
-            .remove(KEY_MANGA_CACHE)
-            .apply()
+        libraryStore.clearLibrary()
     }
 
     private fun refreshMangaProgress() {
@@ -338,8 +245,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun rescanCachedLibrary() {
-        val rootUri = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
-            .getString(KEY_ROOT_URI, null)
+        val rootUri = libraryStore.getRootUri()
 
         if (rootUri == null) {
             checkPermissionAndOpenPicker()
@@ -347,6 +253,25 @@ class MainActivity : AppCompatActivity() {
         }
 
         scanRootMangaFolderAsync(Uri.parse(rootUri))
+    }
+
+    private fun confirmClearLibraryCache() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.clear_library_cache_title)
+            .setMessage(R.string.clear_library_cache_message)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.clear_library_cache_action) { _, _ ->
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        clearMangaCache()
+                    }
+                    mangaList.clear()
+                    adapter.notifyDataSetChanged()
+                    updateContentVisibility()
+                    Toast.makeText(this@MainActivity, R.string.library_cache_cleared, Toast.LENGTH_SHORT).show()
+                }
+            }
+            .show()
     }
 
     private suspend fun scanRootMangaFolder(uri: Uri): List<MangaItem> = coroutineScope {
@@ -491,17 +416,6 @@ class MainActivity : AppCompatActivity() {
         return matches(Regex(".*\\.(png|jpg|jpeg|webp|gif)", RegexOption.IGNORE_CASE))
     }
 
-    companion object {
-        private const val PREFERENCES_NAME = "manga_library"
-        private const val KEY_ROOT_URI = "root_uri"
-        private const val KEY_MANGA_CACHE = "manga_cache"
-        private const val KEY_MANGA_NAME = "name"
-        private const val KEY_MANGA_URI = "uri"
-        private const val KEY_MANGA_CHAPTERS = "chapters"
-        private const val KEY_CHAPTER_NAME = "name"
-        private const val KEY_CHAPTER_URI = "uri"
-        private const val KEY_CHAPTER_IMAGES = "images"
-    }
 }
 
 data class MangaItem(

@@ -21,8 +21,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
 
 class ChaptersActivity : AppCompatActivity() {
     private lateinit var recyclerView: RecyclerView
@@ -30,6 +28,7 @@ class ChaptersActivity : AppCompatActivity() {
     private lateinit var emptyState: View
     private lateinit var loadingState: View
     private lateinit var adapter: ChapterAdapter
+    private lateinit var libraryStore: LibraryStore
     private lateinit var progressStore: ReadingProgressStore
     private var mangaName: String = "Manga"
     private var mangaUri: String = ""
@@ -47,6 +46,7 @@ class ChaptersActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.progressBar)
         emptyState = findViewById(R.id.emptyState)
         loadingState = findViewById(R.id.loadingState)
+        libraryStore = LibraryStore(this)
         progressStore = ReadingProgressStore(this)
 
         mangaName = intent.getStringExtra("manga_name") ?: "Manga"
@@ -68,15 +68,7 @@ class ChaptersActivity : AppCompatActivity() {
         }
         recyclerView.adapter = adapter
 
-        val cachedChapters = restoreCachedChapters()
-        if (cachedChapters.isNotEmpty()) {
-            chapters.clear()
-            chapters.addAll(withChapterProgress(cachedChapters))
-            adapter.notifyDataSetChanged()
-            updateContentVisibility()
-        } else {
-            scanChaptersAsync(Uri.parse(mangaUri))
-        }
+        restoreSavedChaptersOrScan()
     }
 
     override fun onResume() {
@@ -94,39 +86,45 @@ class ChaptersActivity : AppCompatActivity() {
         scope.cancel()
     }
 
-    private fun restoreCachedChapters(): List<Chapter> {
-        val cachedMangaJson = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
-            .getString(KEY_MANGA_CACHE, null)
-            ?: return emptyList()
+    private fun restoreSavedChaptersOrScan() {
+        showLoading(true)
 
-        return try {
-            val jsonArray = JSONArray(cachedMangaJson)
-            for (index in 0 until jsonArray.length()) {
-                val item = jsonArray.getJSONObject(index)
-                if (item.optString(KEY_MANGA_URI) == mangaUri) {
-                    return parseChapters(item.optJSONArray(KEY_MANGA_CHAPTERS))
+        scope.launch {
+            try {
+                val savedChapters = withContext(Dispatchers.IO) {
+                    libraryStore.getChapters(mangaUri)
                 }
+
+                if (savedChapters.isNotEmpty()) {
+                    chapters.clear()
+                    chapters.addAll(withChapterProgress(savedChapters))
+                    adapter.notifyDataSetChanged()
+                    showLoading(false)
+                } else {
+                    scanChaptersAsync(Uri.parse(mangaUri))
+                }
+            } catch (e: Exception) {
+                Log.e("MangaReader", "Error restoring saved chapters", e)
+                scanChaptersAsync(Uri.parse(mangaUri))
             }
-            emptyList()
-        } catch (e: Exception) {
-            Log.e("MangaReader", "Error restoring cached chapters", e)
-            emptyList()
         }
     }
 
-    private fun scanChaptersAsync(mangaUri: Uri) {
+    private fun scanChaptersAsync(folderUri: Uri) {
         showLoading(true)
 
         scope.launch {
             try {
                 val scannedChapters = withContext(Dispatchers.IO) {
-                    scanChaptersParallel(mangaUri)
+                    scanChaptersParallel(folderUri)
                 }
 
                 chapters.clear()
                 chapters.addAll(withChapterProgress(scannedChapters))
                 adapter.notifyDataSetChanged()
-                saveChaptersToMangaCache(scannedChapters)
+                withContext(Dispatchers.IO) {
+                    libraryStore.saveChapters(mangaUri, mangaName, scannedChapters)
+                }
 
                 showLoading(false)
 
@@ -226,79 +224,6 @@ class ChaptersActivity : AppCompatActivity() {
         }
     }
 
-    private fun saveChaptersToMangaCache(scannedChapters: List<Chapter>) {
-        val preferences = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
-        val cachedMangaJson = preferences.getString(KEY_MANGA_CACHE, null) ?: return
-
-        try {
-            val jsonArray = JSONArray(cachedMangaJson)
-            for (index in 0 until jsonArray.length()) {
-                val item = jsonArray.getJSONObject(index)
-                if (item.optString(KEY_MANGA_URI) == mangaUri) {
-                    item.put(KEY_MANGA_CHAPTERS, chaptersToJson(scannedChapters))
-                    preferences.edit()
-                        .putString(KEY_MANGA_CACHE, jsonArray.toString())
-                        .apply()
-                    return
-                }
-            }
-
-            jsonArray.put(
-                JSONObject()
-                    .put(KEY_MANGA_NAME, mangaName)
-                    .put(KEY_MANGA_URI, mangaUri)
-                    .put(KEY_MANGA_CHAPTERS, chaptersToJson(scannedChapters))
-            )
-            preferences.edit()
-                .putString(KEY_MANGA_CACHE, jsonArray.toString())
-                .apply()
-        } catch (e: Exception) {
-            Log.e("MangaReader", "Error saving chapter cache", e)
-        }
-    }
-
-    private fun parseChapters(chaptersJson: JSONArray?): List<Chapter> {
-        if (chaptersJson == null) return emptyList()
-
-        return buildList {
-            for (chapterIndex in 0 until chaptersJson.length()) {
-                val chapterJson = chaptersJson.getJSONObject(chapterIndex)
-                val imagesJson = chapterJson.optJSONArray(KEY_CHAPTER_IMAGES) ?: JSONArray()
-                val images = buildList {
-                    for (imageIndex in 0 until imagesJson.length()) {
-                        add(imagesJson.getString(imageIndex))
-                    }
-                }
-
-                add(
-                    Chapter(
-                        name = chapterJson.getString(KEY_CHAPTER_NAME),
-                        uri = chapterJson.getString(KEY_CHAPTER_URI),
-                        images = images
-                    )
-                )
-            }
-        }
-    }
-
-    private fun chaptersToJson(chapters: List<Chapter>): JSONArray {
-        val chaptersJson = JSONArray()
-        chapters.forEach { chapter ->
-            val imagesJson = JSONArray()
-            chapter.images.forEach { imageUri ->
-                imagesJson.put(imageUri)
-            }
-
-            chaptersJson.put(
-                JSONObject()
-                    .put(KEY_CHAPTER_NAME, chapter.name)
-                    .put(KEY_CHAPTER_URI, chapter.uri)
-                    .put(KEY_CHAPTER_IMAGES, imagesJson)
-            )
-        }
-        return chaptersJson
-    }
-
     private fun String.isImageFile(): Boolean {
         return matches(Regex(".*\\.(png|jpg|jpeg|webp|gif)", RegexOption.IGNORE_CASE))
     }
@@ -388,16 +313,6 @@ class ChaptersActivity : AppCompatActivity() {
         emptyState.visibility = if (hasChapters) View.GONE else View.VISIBLE
     }
 
-    companion object {
-        private const val PREFERENCES_NAME = "manga_library"
-        private const val KEY_MANGA_CACHE = "manga_cache"
-        private const val KEY_MANGA_NAME = "name"
-        private const val KEY_MANGA_URI = "uri"
-        private const val KEY_MANGA_CHAPTERS = "chapters"
-        private const val KEY_CHAPTER_NAME = "name"
-        private const val KEY_CHAPTER_URI = "uri"
-        private const val KEY_CHAPTER_IMAGES = "images"
-    }
 }
 
 data class Chapter(

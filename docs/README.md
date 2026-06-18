@@ -72,6 +72,8 @@ Manga Library/
 
 ## Документація
 
+- [PRODUCT_CHECKLIST.md](PRODUCT_CHECKLIST.md) — цільова поведінка застосунку й
+  acceptance checklist для бібліотеки, налаштувань, zoom і ротації.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — архітектура, потоки даних і структура
   директорій та файлів.
 - [DEVELOPMENT.md](DEVELOPMENT.md) — налаштування середовища, збірка,

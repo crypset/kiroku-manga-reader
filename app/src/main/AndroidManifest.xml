@@ -1,11 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
-
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
-        tools:ignore="ScopedStorage" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
         android:allowBackup="true"
@@ -33,8 +27,7 @@
 
         <activity
             android:name=".ReaderActivity"
-            android:theme="@style/Theme.MangaReader.Reader"
-            android:configChanges="orientation|screenSize|keyboardHidden"/>
+            android:theme="@style/Theme.MangaReader.Reader"/>
 
     </application>
 

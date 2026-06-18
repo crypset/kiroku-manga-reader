@@ -1,7 +1,6 @@
 package com.crypset.kiroku.mangareader
 
 import android.content.Context
-import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.view.MotionEvent
 import android.view.View
@@ -19,7 +18,6 @@ class ReaderActivity : AppCompatActivity() {
     private lateinit var viewPager: ViewPager2
     private lateinit var pageIndicator: TextView
     private lateinit var toolbar: View
-    private lateinit var rotateButton: ImageButton
     private lateinit var settingsButton: ImageButton
     private lateinit var imagePagerAdapter: ImagePagerAdapter
     private lateinit var progressStore: ReadingProgressStore
@@ -30,7 +28,6 @@ class ReaderActivity : AppCompatActivity() {
     private var images: List<String> = emptyList()
     private var pageContainerWidthPercent = DEFAULT_PAGE_CONTAINER_WIDTH_PERCENT
     private var isToolbarVisible = true
-    private var isLandscape = false
     private var isPageZoomed = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,7 +37,6 @@ class ReaderActivity : AppCompatActivity() {
         viewPager = findViewById(R.id.imageViewPager)
         pageIndicator = findViewById(R.id.pageIndicator)
         toolbar = findViewById(R.id.readerToolbar)
-        rotateButton = findViewById(R.id.rotateButton)
         settingsButton = findViewById(R.id.settingsButton)
         progressStore = ReadingProgressStore(this)
         pageContainerWidthPercent = getReaderSettings()
@@ -85,10 +81,6 @@ class ReaderActivity : AppCompatActivity() {
             }
         })
 
-        rotateButton.setOnClickListener {
-            toggleOrientation()
-        }
-
         settingsButton.setOnClickListener {
             showReaderSettings()
         }
@@ -132,15 +124,6 @@ class ReaderActivity : AppCompatActivity() {
 
     private fun updatePageIndicator(current: Int, total: Int) {
         pageIndicator.text = "$current / $total"
-    }
-
-    private fun toggleOrientation() {
-        isLandscape = !isLandscape
-        requestedOrientation = if (isLandscape) {
-            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-        } else {
-            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        }
     }
 
     private fun toggleToolbar() {
