@@ -25,7 +25,19 @@ class MangaAdapter(
     override fun onBindViewHolder(holder: MangaViewHolder, position: Int) {
         val manga = mangaList[position]
         holder.mangaName.text = manga.name
-        holder.subtitle.text = "Tap to view chapters"
+        holder.subtitle.text = manga.progress?.let { progress ->
+            val pageText = if (progress.lastTotalPages > 0) {
+                "page ${progress.lastPageNumber}/${progress.lastTotalPages}"
+            } else {
+                "page ${progress.lastPageNumber}"
+            }
+            val chapterText = if (progress.startedChapters > 1 || progress.completedChapters > 0) {
+                " - ${progress.completedChapters}/${progress.startedChapters} read"
+            } else {
+                ""
+            }
+            "Last read: ${progress.lastChapterName}, $pageText$chapterText"
+        } ?: "Tap to view chapters"
 
         holder.itemView.setOnClickListener {
             onMangaClick(manga)

@@ -25,7 +25,13 @@ class ChapterAdapter(
     override fun onBindViewHolder(holder: ChapterViewHolder, position: Int) {
         val chapter = chapters[position]
         holder.chapterName.text = chapter.name
-        holder.pageCount.text = "${chapter.images.size} pages"
+        holder.pageCount.text = chapter.progress?.let { progress ->
+            when {
+                progress.completed -> "${chapter.images.size} pages - Read"
+                progress.totalPages > 0 -> "${chapter.images.size} pages - Page ${progress.pageNumber}/${progress.totalPages}"
+                else -> "${chapter.images.size} pages - Started"
+            }
+        } ?: "${chapter.images.size} pages"
 
         holder.itemView.setOnClickListener {
             onChapterClick(chapter)

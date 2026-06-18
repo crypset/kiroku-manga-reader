@@ -2,4 +2,9 @@
     <string name="app_name">MangaReader</string>
     <string name="reader_settings_title">Reader settings</string>
     <string name="reader_container_width_value">Container width: %1$d%%</string>
+    <string name="clear_reading_progress_title">Clear reading progress</string>
+    <string name="clear_reading_progress_message">Remove saved pages, completed chapters, and last-read manga?</string>
+    <string name="clear_reading_progress_action">Clear</string>
+    <string name="reading_progress_cleared">Reading progress cleared</string>
+    <string name="reader_settings_message">Reading progress is saved automatically while you read.</string>
 </resources>

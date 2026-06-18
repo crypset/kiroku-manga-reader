@@ -9,10 +9,13 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
 import android.util.Log
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -26,6 +29,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
     private lateinit var adapter: MangaAdapter
+    private lateinit var progressStore: ReadingProgressStore
     private val mangaList = mutableListOf<MangaItem>()
     private val scope = CoroutineScope(Dispatchers.Main + Job())
 
@@ -51,6 +55,7 @@ class MainActivity : AppCompatActivity() {
 
         recyclerView = findViewById(R.id.chaptersRecyclerView)
         progressBar = findViewById(R.id.progressBar)
+        progressStore = ReadingProgressStore(this)
 
         recyclerView.layoutManager = LinearLayoutManager(this)
 
@@ -64,6 +69,26 @@ class MainActivity : AppCompatActivity() {
         }
 
         restoreCachedManga()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshMangaProgress()
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menuInflater.inflate(R.menu.menu_main, menu)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.action_clear_reading_progress -> {
+                confirmClearReadingProgress()
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
+        }
     }
 
     override fun onDestroy() {
@@ -105,7 +130,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 mangaList.clear()
-                mangaList.addAll(scannedManga)
+                mangaList.addAll(withMangaProgress(scannedManga))
                 adapter.notifyDataSetChanged()
                 saveMangaCache(uri, scannedManga)
 
@@ -151,7 +176,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             mangaList.clear()
-            mangaList.addAll(cachedManga)
+            mangaList.addAll(withMangaProgress(cachedManga))
             adapter.notifyDataSetChanged()
         } catch (e: Exception) {
             Log.e("MangaReader", "Error restoring cached manga", e)
@@ -182,6 +207,35 @@ class MainActivity : AppCompatActivity() {
             .remove(KEY_ROOT_URI)
             .remove(KEY_MANGA_CACHE)
             .apply()
+    }
+
+    private fun refreshMangaProgress() {
+        if (!::adapter.isInitialized || mangaList.isEmpty()) return
+
+        for (index in mangaList.indices) {
+            val manga = mangaList[index]
+            mangaList[index] = manga.copy(progress = progressStore.getMangaProgress(manga.uri))
+        }
+        adapter.notifyDataSetChanged()
+    }
+
+    private fun withMangaProgress(manga: List<MangaItem>): List<MangaItem> {
+        return manga.map { item ->
+            item.copy(progress = progressStore.getMangaProgress(item.uri))
+        }
+    }
+
+    private fun confirmClearReadingProgress() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.clear_reading_progress_title)
+            .setMessage(R.string.clear_reading_progress_message)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.clear_reading_progress_action) { _, _ ->
+                progressStore.clearAll()
+                refreshMangaProgress()
+                Toast.makeText(this, R.string.reading_progress_cleared, Toast.LENGTH_SHORT).show()
+            }
+            .show()
     }
 
     private fun scanRootMangaFolderFast(uri: Uri): List<MangaItem> {
@@ -275,4 +329,8 @@ class MainActivity : AppCompatActivity() {
     }
 }
 
-data class MangaItem(val name: String, val uri: String)
+data class MangaItem(
+    val name: String,
+    val uri: String,
+    val progress: MangaReadingProgress? = null
+)

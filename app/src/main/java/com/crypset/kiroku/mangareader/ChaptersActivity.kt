@@ -16,6 +16,9 @@ class ChaptersActivity : AppCompatActivity() {
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
     private lateinit var adapter: ChapterAdapter
+    private lateinit var progressStore: ReadingProgressStore
+    private var mangaName: String = "Manga"
+    private var mangaUri: String = ""
     private val chapters = mutableListOf<Chapter>()
     private val scope = CoroutineScope(Dispatchers.Main + Job())
 
@@ -25,11 +28,12 @@ class ChaptersActivity : AppCompatActivity() {
 
         recyclerView = findViewById(R.id.chaptersRecyclerView)
         progressBar = findViewById(R.id.progressBar)
+        progressStore = ReadingProgressStore(this)
 
-        val mangaName = intent.getStringExtra("manga_name") ?: "Manga"
-        val mangaUri = intent.getStringExtra("manga_uri")
+        mangaName = intent.getStringExtra("manga_name") ?: "Manga"
+        mangaUri = intent.getStringExtra("manga_uri") ?: ""
 
-        if (mangaUri == null) {
+        if (mangaUri.isBlank()) {
             Toast.makeText(this, "Error: Invalid manga URI", Toast.LENGTH_SHORT).show()
             finish()
             return
@@ -47,6 +51,11 @@ class ChaptersActivity : AppCompatActivity() {
 
         // Швидке паралельне сканування
         scanChaptersAsync(Uri.parse(mangaUri))
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshChapterProgress()
     }
 
     override fun onSupportNavigateUp(): Boolean {
@@ -70,7 +79,7 @@ class ChaptersActivity : AppCompatActivity() {
                 }
 
                 chapters.clear()
-                chapters.addAll(scannedChapters)
+                chapters.addAll(withChapterProgress(scannedChapters))
                 adapter.notifyDataSetChanged()
 
                 progressBar.visibility = View.GONE
@@ -127,8 +136,9 @@ class ChaptersActivity : AppCompatActivity() {
 
                 return@coroutineScope if (images.isNotEmpty()) {
                     listOf(Chapter(
-                        mangaFolder.name ?: "Chapter",
-                        images.map { it.uri.toString() }
+                        name = mangaFolder.name ?: "Chapter",
+                        uri = mangaFolder.uri.toString(),
+                        images = images.map { it.uri.toString() }
                     ))
                 } else {
                     emptyList()
@@ -149,8 +159,9 @@ class ChaptersActivity : AppCompatActivity() {
 
                         if (images.isNotEmpty()) {
                             Chapter(
-                                chapterFolder.name ?: "Unknown Chapter",
-                                images.map { it.uri.toString() }
+                                name = chapterFolder.name ?: "Unknown Chapter",
+                                uri = chapterFolder.uri.toString(),
+                                images = images.map { it.uri.toString() }
                             )
                         } else {
                             null
@@ -219,8 +230,33 @@ class ChaptersActivity : AppCompatActivity() {
         val intent = Intent(this, ReaderActivity::class.java)
         intent.putStringArrayListExtra("images", ArrayList(chapter.images))
         intent.putExtra("title", chapter.name)
+        intent.putExtra("manga_name", mangaName)
+        intent.putExtra("manga_uri", mangaUri)
+        intent.putExtra("chapter_name", chapter.name)
+        intent.putExtra("chapter_uri", chapter.uri)
         startActivity(intent)
+    }
+
+    private fun refreshChapterProgress() {
+        if (!::adapter.isInitialized || chapters.isEmpty()) return
+
+        for (index in chapters.indices) {
+            val chapter = chapters[index]
+            chapters[index] = chapter.copy(progress = progressStore.getChapterProgress(chapter.uri))
+        }
+        adapter.notifyDataSetChanged()
+    }
+
+    private fun withChapterProgress(chapters: List<Chapter>): List<Chapter> {
+        return chapters.map { chapter ->
+            chapter.copy(progress = progressStore.getChapterProgress(chapter.uri))
+        }
     }
 }
 
-data class Chapter(val name: String, val images: List<String>)
+data class Chapter(
+    val name: String,
+    val uri: String,
+    val images: List<String>,
+    val progress: ChapterReadingProgress? = null
+)
