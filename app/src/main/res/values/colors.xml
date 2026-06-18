@@ -1,11 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="purple_200">#FFBB86FC</color>
-    <color name="purple_500">#FF6200EE</color>
-    <color name="purple_700">#FF3700B3</color>
-    <color name="teal_200">#FF03DAC5</color>
-    <color name="teal_700">#FF018786</color>
+    <color name="kiroku_background">#111315</color>
+    <color name="kiroku_background_deep">#0B0C0E</color>
+    <color name="kiroku_surface">#1A1C1F</color>
+    <color name="kiroku_surface_high">#23262A</color>
+    <color name="kiroku_surface_reader">#D9000000</color>
+    <color name="kiroku_primary">#FFFF6B5A</color>
+    <color name="kiroku_primary_container">#FF3A211F</color>
+    <color name="kiroku_secondary">#FF63D2B4</color>
+    <color name="kiroku_secondary_container">#FF16352E</color>
+    <color name="kiroku_amber">#FFF2C14E</color>
+    <color name="kiroku_on_primary">#FF220705</color>
+    <color name="kiroku_text_primary">#FFF7F2EE</color>
+    <color name="kiroku_text_secondary">#FFC7BCB4</color>
+    <color name="kiroku_text_muted">#FF8F8782</color>
+    <color name="kiroku_stroke">#24FFFFFF</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
-    <color name="surface_color">#1E1E1E</color>
+    <color name="surface_color">@color/kiroku_surface</color>
 </resources>

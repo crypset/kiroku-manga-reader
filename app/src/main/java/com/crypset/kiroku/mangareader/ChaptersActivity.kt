@@ -10,11 +10,14 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.appbar.MaterialToolbar
 import kotlinx.coroutines.*
 
 class ChaptersActivity : AppCompatActivity() {
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
+    private lateinit var emptyState: View
+    private lateinit var loadingState: View
     private lateinit var adapter: ChapterAdapter
     private lateinit var progressStore: ReadingProgressStore
     private var mangaName: String = "Manga"
@@ -26,8 +29,13 @@ class ChaptersActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_chapters)
 
+        val toolbar: MaterialToolbar = findViewById(R.id.topAppBar)
+        setSupportActionBar(toolbar)
+
         recyclerView = findViewById(R.id.chaptersRecyclerView)
         progressBar = findViewById(R.id.progressBar)
+        emptyState = findViewById(R.id.emptyState)
+        loadingState = findViewById(R.id.loadingState)
         progressStore = ReadingProgressStore(this)
 
         mangaName = intent.getStringExtra("manga_name") ?: "Manga"
@@ -69,8 +77,7 @@ class ChaptersActivity : AppCompatActivity() {
     }
 
     private fun scanChaptersAsync(mangaUri: Uri) {
-        progressBar.visibility = View.VISIBLE
-        recyclerView.visibility = View.GONE
+        showLoading(true)
 
         scope.launch {
             try {
@@ -82,8 +89,7 @@ class ChaptersActivity : AppCompatActivity() {
                 chapters.addAll(withChapterProgress(scannedChapters))
                 adapter.notifyDataSetChanged()
 
-                progressBar.visibility = View.GONE
-                recyclerView.visibility = View.VISIBLE
+                showLoading(false)
 
                 if (chapters.isEmpty()) {
                     Toast.makeText(
@@ -94,7 +100,7 @@ class ChaptersActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 Log.e("MangaReader", "Error scanning chapters", e)
-                progressBar.visibility = View.GONE
+                showLoading(false)
                 Toast.makeText(
                     this@ChaptersActivity,
                     "Error: ${e.message}",
@@ -245,12 +251,31 @@ class ChaptersActivity : AppCompatActivity() {
             chapters[index] = chapter.copy(progress = progressStore.getChapterProgress(chapter.uri))
         }
         adapter.notifyDataSetChanged()
+        updateContentVisibility()
     }
 
     private fun withChapterProgress(chapters: List<Chapter>): List<Chapter> {
         return chapters.map { chapter ->
             chapter.copy(progress = progressStore.getChapterProgress(chapter.uri))
         }
+    }
+
+    private fun showLoading(isLoading: Boolean) {
+        loadingState.visibility = if (isLoading) View.VISIBLE else View.GONE
+        progressBar.visibility = if (isLoading) View.VISIBLE else View.GONE
+
+        if (isLoading) {
+            recyclerView.visibility = View.GONE
+            emptyState.visibility = View.GONE
+        } else {
+            updateContentVisibility()
+        }
+    }
+
+    private fun updateContentVisibility() {
+        val hasChapters = chapters.isNotEmpty()
+        recyclerView.visibility = if (hasChapters) View.VISIBLE else View.GONE
+        emptyState.visibility = if (hasChapters) View.GONE else View.VISIBLE
     }
 }
 

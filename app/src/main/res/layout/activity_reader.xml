@@ -4,7 +4,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000">
+    android:background="@color/black">
 
     <!-- Повертаємось до звичайного ViewPager2 -->
     <androidx.viewpager2.widget.ViewPager2
@@ -21,7 +21,10 @@
         android:layout_alignParentStart="true"
         android:orientation="horizontal"
         android:background="@drawable/toolbar_background"
-        android:padding="8dp"
+        android:paddingStart="10dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="8dp"
         android:layout_margin="12dp"
         android:gravity="center_vertical"
         android:elevation="8dp">
@@ -32,7 +35,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="1 / 1"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/kiroku_text_primary"
             android:textSize="14sp"
             android:textStyle="bold"
             android:paddingStart="8dp"
@@ -42,22 +45,22 @@
         <!-- Кнопка ротації -->
         <ImageButton
             android:id="@+id/rotateButton"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:src="@android:drawable/ic_menu_rotate"
+            android:layout_width="@dimen/touch_target"
+            android:layout_height="@dimen/touch_target"
+            android:src="@drawable/ic_rotate"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Rotate Screen"
-            app:tint="#FFFFFF"
+            app:tint="@color/kiroku_text_primary"
             android:padding="6dp"/>
 
         <ImageButton
             android:id="@+id/settingsButton"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:src="@android:drawable/ic_menu_manage"
+            android:layout_width="@dimen/touch_target"
+            android:layout_height="@dimen/touch_target"
+            android:src="@drawable/ic_settings"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/reader_settings_title"
-            app:tint="#FFFFFF"
+            app:tint="@color/kiroku_text_primary"
             android:padding="6dp"/>
 
     </LinearLayout>

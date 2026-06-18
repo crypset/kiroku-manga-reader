@@ -20,6 +20,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import kotlinx.coroutines.*
 import org.json.JSONArray
@@ -28,6 +29,8 @@ import org.json.JSONObject
 class MainActivity : AppCompatActivity() {
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
+    private lateinit var emptyState: View
+    private lateinit var loadingState: View
     private lateinit var adapter: MangaAdapter
     private lateinit var progressStore: ReadingProgressStore
     private val mangaList = mutableListOf<MangaItem>()
@@ -53,8 +56,15 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        val toolbar: MaterialToolbar = findViewById(R.id.topAppBar)
+        toolbar.title = getString(R.string.app_name)
+        toolbar.subtitle = getString(R.string.library_subtitle)
+        setSupportActionBar(toolbar)
+
         recyclerView = findViewById(R.id.chaptersRecyclerView)
         progressBar = findViewById(R.id.progressBar)
+        emptyState = findViewById(R.id.emptyState)
+        loadingState = findViewById(R.id.loadingState)
         progressStore = ReadingProgressStore(this)
 
         recyclerView.layoutManager = LinearLayoutManager(this)
@@ -65,6 +75,9 @@ class MainActivity : AppCompatActivity() {
         recyclerView.adapter = adapter
 
         findViewById<FloatingActionButton>(R.id.fabSelectFolder).setOnClickListener {
+            checkPermissionAndOpenPicker()
+        }
+        findViewById<View>(R.id.emptySelectFolderButton).setOnClickListener {
             checkPermissionAndOpenPicker()
         }
 
@@ -120,8 +133,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun scanRootMangaFolderAsync(uri: Uri) {
-        progressBar.visibility = View.VISIBLE
-        recyclerView.visibility = View.GONE
+        showLoading(true)
 
         scope.launch {
             try {
@@ -134,8 +146,7 @@ class MainActivity : AppCompatActivity() {
                 adapter.notifyDataSetChanged()
                 saveMangaCache(uri, scannedManga)
 
-                progressBar.visibility = View.GONE
-                recyclerView.visibility = View.VISIBLE
+                showLoading(false)
 
                 if (mangaList.isEmpty()) {
                     Toast.makeText(
@@ -146,7 +157,7 @@ class MainActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 Log.e("MangaReader", "Error scanning root folder", e)
-                progressBar.visibility = View.GONE
+                showLoading(false)
                 Toast.makeText(
                     this@MainActivity,
                     "Error: ${e.message}",
@@ -159,7 +170,10 @@ class MainActivity : AppCompatActivity() {
     private fun restoreCachedManga() {
         val cachedMangaJson = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
             .getString(KEY_MANGA_CACHE, null)
-            ?: return
+            ?: run {
+                updateContentVisibility()
+                return
+            }
 
         try {
             val cachedManga = buildList {
@@ -178,9 +192,11 @@ class MainActivity : AppCompatActivity() {
             mangaList.clear()
             mangaList.addAll(withMangaProgress(cachedManga))
             adapter.notifyDataSetChanged()
+            updateContentVisibility()
         } catch (e: Exception) {
             Log.e("MangaReader", "Error restoring cached manga", e)
             clearMangaCache()
+            updateContentVisibility()
         }
     }
 
@@ -217,6 +233,25 @@ class MainActivity : AppCompatActivity() {
             mangaList[index] = manga.copy(progress = progressStore.getMangaProgress(manga.uri))
         }
         adapter.notifyDataSetChanged()
+        updateContentVisibility()
+    }
+
+    private fun showLoading(isLoading: Boolean) {
+        loadingState.visibility = if (isLoading) View.VISIBLE else View.GONE
+        progressBar.visibility = if (isLoading) View.VISIBLE else View.GONE
+
+        if (isLoading) {
+            recyclerView.visibility = View.GONE
+            emptyState.visibility = View.GONE
+        } else {
+            updateContentVisibility()
+        }
+    }
+
+    private fun updateContentVisibility() {
+        val hasManga = mangaList.isNotEmpty()
+        recyclerView.visibility = if (hasManga) View.VISIBLE else View.GONE
+        emptyState.visibility = if (hasManga) View.GONE else View.VISIBLE
     }
 
     private fun withMangaProgress(manga: List<MangaItem>): List<MangaItem> {

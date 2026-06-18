@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="screen_padding">20dp</dimen>
+    <dimen name="list_horizontal_padding">12dp</dimen>
+    <dimen name="list_vertical_padding">12dp</dimen>
+    <dimen name="card_radius">8dp</dimen>
+    <dimen name="card_spacing">8dp</dimen>
+    <dimen name="touch_target">48dp</dimen>
+</resources>

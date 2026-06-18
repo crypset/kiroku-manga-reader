@@ -3,6 +3,7 @@ package com.crypset.kiroku.mangareader
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 
@@ -14,6 +15,8 @@ class MangaAdapter(
     class MangaViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val mangaName: TextView = view.findViewById(R.id.chapterName)
         val subtitle: TextView = view.findViewById(R.id.pageCount)
+        val statusChip: TextView = view.findViewById(R.id.statusChip)
+        val itemIcon: ImageView = view.findViewById(R.id.itemIcon)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MangaViewHolder {
@@ -24,7 +27,9 @@ class MangaAdapter(
 
     override fun onBindViewHolder(holder: MangaViewHolder, position: Int) {
         val manga = mangaList[position]
+        val context = holder.itemView.context
         holder.mangaName.text = manga.name
+        holder.itemIcon.setImageResource(R.drawable.ic_book)
         holder.subtitle.text = manga.progress?.let { progress ->
             val pageText = if (progress.lastTotalPages > 0) {
                 "page ${progress.lastPageNumber}/${progress.lastTotalPages}"
@@ -37,7 +42,13 @@ class MangaAdapter(
                 ""
             }
             "Last read: ${progress.lastChapterName}, $pageText$chapterText"
-        } ?: "Tap to view chapters"
+        } ?: context.getString(R.string.item_default_subtitle)
+        holder.statusChip.visibility = View.VISIBLE
+        holder.statusChip.text = if (manga.progress == null) {
+            context.getString(R.string.item_status_new)
+        } else {
+            context.getString(R.string.item_status_continue)
+        }
 
         holder.itemView.setOnClickListener {
             onMangaClick(manga)
