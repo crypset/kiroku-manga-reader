@@ -5,6 +5,21 @@ import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import com.crypset.kiroku.mangareader.LibraryDatabaseSchema.COLUMN_CHAPTER_URI
+import com.crypset.kiroku.mangareader.LibraryDatabaseSchema.COLUMN_KEY
+import com.crypset.kiroku.mangareader.LibraryDatabaseSchema.COLUMN_MANGA_URI
+import com.crypset.kiroku.mangareader.LibraryDatabaseSchema.COLUMN_NAME
+import com.crypset.kiroku.mangareader.LibraryDatabaseSchema.COLUMN_PAGE_URI
+import com.crypset.kiroku.mangareader.LibraryDatabaseSchema.COLUMN_SORT_ORDER
+import com.crypset.kiroku.mangareader.LibraryDatabaseSchema.COLUMN_URI
+import com.crypset.kiroku.mangareader.LibraryDatabaseSchema.COLUMN_VALUE
+import com.crypset.kiroku.mangareader.LibraryDatabaseSchema.DATABASE_NAME
+import com.crypset.kiroku.mangareader.LibraryDatabaseSchema.DATABASE_VERSION
+import com.crypset.kiroku.mangareader.LibraryDatabaseSchema.KEY_ROOT_URI
+import com.crypset.kiroku.mangareader.LibraryDatabaseSchema.TABLE_CHAPTERS
+import com.crypset.kiroku.mangareader.LibraryDatabaseSchema.TABLE_MANGA
+import com.crypset.kiroku.mangareader.LibraryDatabaseSchema.TABLE_METADATA
+import com.crypset.kiroku.mangareader.LibraryDatabaseSchema.TABLE_PAGES
 
 class LibraryStore(context: Context) : SQLiteOpenHelper(
     context.applicationContext,
@@ -14,55 +29,11 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(
 ) {
 
     override fun onCreate(db: SQLiteDatabase) {
-        db.execSQL(
-            """
-            CREATE TABLE metadata (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            )
-            """.trimIndent()
-        )
-        db.execSQL(
-            """
-            CREATE TABLE manga (
-                uri TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                sort_order INTEGER NOT NULL
-            )
-            """.trimIndent()
-        )
-        db.execSQL(
-            """
-            CREATE TABLE chapters (
-                uri TEXT PRIMARY KEY,
-                manga_uri TEXT NOT NULL,
-                name TEXT NOT NULL,
-                sort_order INTEGER NOT NULL,
-                FOREIGN KEY(manga_uri) REFERENCES manga(uri) ON DELETE CASCADE
-            )
-            """.trimIndent()
-        )
-        db.execSQL(
-            """
-            CREATE TABLE pages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                chapter_uri TEXT NOT NULL,
-                uri TEXT NOT NULL,
-                sort_order INTEGER NOT NULL,
-                FOREIGN KEY(chapter_uri) REFERENCES chapters(uri) ON DELETE CASCADE
-            )
-            """.trimIndent()
-        )
-        db.execSQL("CREATE INDEX index_chapters_manga_uri ON chapters(manga_uri)")
-        db.execSQL("CREATE INDEX index_pages_chapter_uri ON pages(chapter_uri)")
+        LibraryDatabaseSchema.create(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS pages")
-        db.execSQL("DROP TABLE IF EXISTS chapters")
-        db.execSQL("DROP TABLE IF EXISTS manga")
-        db.execSQL("DROP TABLE IF EXISTS metadata")
-        onCreate(db)
+        LibraryDatabaseSchema.recreate(db)
     }
 
     fun getRootUri(): String? {
@@ -131,7 +102,7 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(
 
     fun saveLibrary(rootUri: String, manga: List<MangaItem>) {
         writableDatabase.transaction {
-            clearLibraryTables(this)
+            LibraryDatabaseSchema.clearLibraryTables(this)
             putMetadata(this, KEY_ROOT_URI, rootUri)
             insertManga(this, manga)
         }
@@ -149,7 +120,11 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(
                 },
                 SQLiteDatabase.CONFLICT_REPLACE
             )
-            delete(TABLE_PAGES, "$COLUMN_CHAPTER_URI IN (SELECT $COLUMN_URI FROM $TABLE_CHAPTERS WHERE $COLUMN_MANGA_URI = ?)", arrayOf(mangaUri))
+            delete(
+                TABLE_PAGES,
+                "$COLUMN_CHAPTER_URI IN (SELECT $COLUMN_URI FROM $TABLE_CHAPTERS WHERE $COLUMN_MANGA_URI = ?)",
+                arrayOf(mangaUri)
+            )
             delete(TABLE_CHAPTERS, "$COLUMN_MANGA_URI = ?", arrayOf(mangaUri))
             insertChapters(this, mangaUri, chapters)
         }
@@ -157,7 +132,7 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(
 
     fun clearLibrary() {
         writableDatabase.transaction {
-            clearLibraryTables(this)
+            LibraryDatabaseSchema.clearLibraryTables(this)
             delete(TABLE_METADATA, "$COLUMN_KEY = ?", arrayOf(KEY_ROOT_URI))
         }
     }
@@ -271,12 +246,6 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(
         )
     }
 
-    private fun clearLibraryTables(db: SQLiteDatabase) {
-        db.delete(TABLE_PAGES, null, null)
-        db.delete(TABLE_CHAPTERS, null, null)
-        db.delete(TABLE_MANGA, null, null)
-    }
-
     private fun Cursor.getString(columnName: String): String {
         return getString(getColumnIndexOrThrow(columnName))
     }
@@ -293,26 +262,5 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(
         } finally {
             endTransaction()
         }
-    }
-
-    companion object {
-        private const val DATABASE_NAME = "library.db"
-        private const val DATABASE_VERSION = 1
-
-        private const val TABLE_METADATA = "metadata"
-        private const val TABLE_MANGA = "manga"
-        private const val TABLE_CHAPTERS = "chapters"
-        private const val TABLE_PAGES = "pages"
-
-        private const val KEY_ROOT_URI = "root_uri"
-
-        private const val COLUMN_KEY = "key"
-        private const val COLUMN_VALUE = "value"
-        private const val COLUMN_URI = "uri"
-        private const val COLUMN_NAME = "name"
-        private const val COLUMN_PAGE_URI = "uri"
-        private const val COLUMN_CHAPTER_URI = "chapter_uri"
-        private const val COLUMN_SORT_ORDER = "sort_order"
-        private const val COLUMN_MANGA_URI = "manga_uri"
     }
 }

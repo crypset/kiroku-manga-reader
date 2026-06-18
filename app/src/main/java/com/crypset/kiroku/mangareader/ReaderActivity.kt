@@ -1,6 +1,5 @@
 package com.crypset.kiroku.mangareader
 
-import android.content.Context
 import android.os.Bundle
 import android.view.MotionEvent
 import android.view.View
@@ -21,12 +20,13 @@ class ReaderActivity : AppCompatActivity() {
     private lateinit var settingsButton: ImageButton
     private lateinit var imagePagerAdapter: ImagePagerAdapter
     private lateinit var progressStore: ReadingProgressStore
+    private lateinit var readerSettingsStore: ReaderSettingsStore
     private var mangaName: String = ""
     private var mangaUri: String = ""
     private var chapterName: String = ""
     private var chapterUri: String = ""
     private var images: List<String> = emptyList()
-    private var pageContainerWidthPercent = DEFAULT_PAGE_CONTAINER_WIDTH_PERCENT
+    private var pageContainerWidthPercent = ReaderSettingsStore.DEFAULT_PAGE_CONTAINER_WIDTH_PERCENT
     private var isToolbarVisible = true
     private var isPageZoomed = false
 
@@ -39,19 +39,16 @@ class ReaderActivity : AppCompatActivity() {
         toolbar = findViewById(R.id.readerToolbar)
         settingsButton = findViewById(R.id.settingsButton)
         progressStore = ReadingProgressStore(this)
-        pageContainerWidthPercent = getReaderSettings()
-            .getInt(KEY_PAGE_CONTAINER_WIDTH_PERCENT, DEFAULT_PAGE_CONTAINER_WIDTH_PERCENT)
-            .coerceIn(
-                MIN_PAGE_CONTAINER_WIDTH_PERCENT,
-                MAX_PAGE_CONTAINER_WIDTH_PERCENT
-            )
+        readerSettingsStore = ReaderSettingsStore(this)
+        pageContainerWidthPercent = readerSettingsStore.pageContainerWidthPercent
 
-        images = intent.getStringArrayListExtra("images") ?: arrayListOf()
-        val title = intent.getStringExtra("title") ?: "Chapter"
-        mangaName = intent.getStringExtra("manga_name") ?: ""
-        mangaUri = intent.getStringExtra("manga_uri") ?: ""
-        chapterName = intent.getStringExtra("chapter_name") ?: title
-        chapterUri = intent.getStringExtra("chapter_uri") ?: ""
+        val readerArgs = MangaReaderIntents.readerArgs(intent)
+        images = readerArgs.images
+        val title = readerArgs.title
+        mangaName = readerArgs.mangaName
+        mangaUri = readerArgs.mangaUri
+        chapterName = readerArgs.chapterName
+        chapterUri = readerArgs.chapterUri
 
         supportActionBar?.title = title
 
@@ -166,15 +163,17 @@ class ReaderActivity : AppCompatActivity() {
             setPadding(0, 0, 0, dp(8))
         }
         val widthSeekBar = SeekBar(this).apply {
-            max = MAX_PAGE_CONTAINER_WIDTH_PERCENT - MIN_PAGE_CONTAINER_WIDTH_PERCENT
-            progress = pageContainerWidthPercent - MIN_PAGE_CONTAINER_WIDTH_PERCENT
+            max = ReaderSettingsStore.MAX_PAGE_CONTAINER_WIDTH_PERCENT -
+                    ReaderSettingsStore.MIN_PAGE_CONTAINER_WIDTH_PERCENT
+            progress = pageContainerWidthPercent -
+                    ReaderSettingsStore.MIN_PAGE_CONTAINER_WIDTH_PERCENT
         }
 
         widthSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
                 if (!fromUser) return
 
-                val widthPercent = MIN_PAGE_CONTAINER_WIDTH_PERCENT + progress
+                val widthPercent = ReaderSettingsStore.MIN_PAGE_CONTAINER_WIDTH_PERCENT + progress
                 widthValueView.text = getString(
                     R.string.reader_container_width_value,
                     widthPercent
@@ -204,30 +203,16 @@ class ReaderActivity : AppCompatActivity() {
 
     private fun updatePageContainerWidth(widthPercent: Int) {
         pageContainerWidthPercent = widthPercent.coerceIn(
-            MIN_PAGE_CONTAINER_WIDTH_PERCENT,
-            MAX_PAGE_CONTAINER_WIDTH_PERCENT
+            ReaderSettingsStore.MIN_PAGE_CONTAINER_WIDTH_PERCENT,
+            ReaderSettingsStore.MAX_PAGE_CONTAINER_WIDTH_PERCENT
         )
-        getReaderSettings()
-            .edit()
-            .putInt(KEY_PAGE_CONTAINER_WIDTH_PERCENT, pageContainerWidthPercent)
-            .apply()
+        readerSettingsStore.pageContainerWidthPercent = pageContainerWidthPercent
         imagePagerAdapter.updatePageContainerWidthPercent(pageContainerWidthPercent)
         isPageZoomed = false
         viewPager.isUserInputEnabled = true
     }
 
-    private fun getReaderSettings() =
-        getSharedPreferences(READER_SETTINGS_PREFS, Context.MODE_PRIVATE)
-
     private fun dp(value: Int): Int {
         return (value * resources.displayMetrics.density).toInt()
-    }
-
-    companion object {
-        private const val READER_SETTINGS_PREFS = "reader_settings"
-        private const val KEY_PAGE_CONTAINER_WIDTH_PERCENT = "page_container_width_percent"
-        private const val MIN_PAGE_CONTAINER_WIDTH_PERCENT = 50
-        private const val MAX_PAGE_CONTAINER_WIDTH_PERCENT = 200
-        private const val DEFAULT_PAGE_CONTAINER_WIDTH_PERCENT = 100
     }
 }
